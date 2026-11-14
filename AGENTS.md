@@ -1,0 +1,40 @@
+# 电商修图流开发规范
+
+## 当前裁决与授权
+
+- 产品名称：电商修图流（EcomRetouchFlow）；项目目录：`ecom-retouch-flow`；CLI：`retouch`（本地入口 `node src/cli.ts`）。
+- 用户在 2026-11-14 已确认开始 M1–M2 实现，并明确宿主 Codex／ChatGPT 的图像能力优先，独立图像 API 作为 fallback。已授权本项目包配置、源码、测试、项目内依赖安装与隔离验证；不重复请求路线图确认。
+- 当前正式入口为 `README.md`、`SKILLS.md` 和 `docs/ROADMAP.md`。业务操作遵循 SKILLS.md，当前架构见 `docs/ARCHITECTURE.md`。初始研究材料保留在本地 `docs/ai-native-cli/`，不作为公共运行依赖。
+- 用户已明确授权通过 gh 创建本项目公开仓库、初始化 Git 并提交推送，归档不参与跟踪。软件发版、部署与实际 API 调用仍分别核对实际授权。
+
+## 目录与历史保全
+
+- 根目录声明文件为 `README.md`、`AGENTS.md`、`SKILLS.md`、`LICENSE`、`.gitignore`、`.gitattributes`、`package.json`、`package-lock.json`、`tsconfig.json`。正式代码进入 `src/`，业务测试进入 `tests/`，可重复工具进入 `scripts/`，面向人的规范和证据进入 `docs/`。
+- `archive/browser-extension/1.5.0-20261114/` 是冻结的原项目快照，包含插件代码、依赖、测试、历史文档及当时设计；不编辑、不安装依赖、不直接运行会向归档写入的测试。恢复方法见其父目录 README。
+- 旧浏览器配置及此前被拒清理的临时对象保留在 `tmp/`，不清空、不换方式删除或移动。技能 junction 保留在 `.agents/`、`.dsh/`，不修改链接指向的技能副本。
+- 临时输出只放 `tmp/<任务名>/`，由 `.gitignore` 排除；运行态放工具自有工作区；凭证不写入文件、argv、日志、ygl payload 或导出包。
+- `docs/project-transition.json` 记录本机原路径、归档映射、原文件 hash 与校验结果，不提交 Git。历史回执中的路径是当时事实，不批量改写旧记录；公开范围见 `docs/ARCHIVE.md`。
+
+## 架构与行为
+
+- 复用现有 Agent 宿主。业务 CLI 负责领域状态、不可变图像对象、计划版本、授权、预算、租约、执行回执、恢复和交付；ygl 负责依赖求值与可重建的证据投影；图像适配器负责真实图像输入输出。
+- 默认图像执行方式为 host：CLI 生成绑定输入的任务单，宿主用其实际可用的图像工具执行，再回接真实结果文件。离线提供商仅用于演示／测试；API fallback 需要明确选择与配置，不能因宿主工具缺失自动转为收费 API。
+- 需求文字非空且未停用即参与。保持用户原文与 Agent 解释的区别；后续步骤绑定明确的前序结果及坐标系。
+- ygl unlock、rc0、提供商受理、收到图片、检查通过、人工接受和任务交付分别判断。质量未知或未运行不计通过。
+- 相同请求键重放已有事实；外部请求结果未知时先对账。补写 ygl 失败不能触发重新生成图片。
+- 用户的计划授权、素材外发范围、费用上限和最终验收是独立事实；已授权范围内的普通开发与执行自主推进，不增加逐步确认。
+
+## 验证入口
+
+- 业务 CLI：`node src/cli.ts`；类型检查：`npm run typecheck`；完整测试：`node scripts/test.mjs --ygl-entry <实际安装入口>`；独立演示：`node scripts/demo.mjs --ygl-entry <实际安装入口>`。Windows PowerShell 使用 Node 入口传递参数，不依赖 npm.ps1 转发。
+- 当前实际命令与协议以 `docs/CLI.md`、`docs/HOST-EXECUTOR.md` 和 CLI help 为准。宿主执行以 actual tool availability 为前提，dispatch 的 replayed 响应不能触发第二次出图。保持区采用批准矩形内合成，再对实际候选做视觉检查。
+- 每次完整测试保存不可变运行报告与最新索引到 `docs/verification/`；原生集成、离线图像处理、宿主协议夹具、真实 AI 质量分别报告。单元测试显式 `--unit-only`，不把它写成原生集成已通过。
+
+- 本机另保留初始设计校验与探针工具 `scripts/validate-retouch-design.mjs`、`scripts/explore-retouch-ygl.mjs`；它们和所需原生记录、归档基线不随公开仓库发布。仅在这些本地材料实际存在且当前任务需要时使用，不把它们作为公共构建或测试前提。
+- 本机设计记录使用独立 home `~/.ygl-trees/workspaces/retouch-cli-design`。项目更名只更新其归属 marker，保留原 project/tree/task ID；不改默认库、全局安装或共享 ygl 检出。
+- 实现阶段补充有意义的领域、CLI、图像与 ygl 集成测试；真实调用独立 opt-in。按实际 JSON、退出码、文件和人工结论报告 PASS、FAIL、UNKNOWN、NOT_RUN。
+- 收尾检查正式入口、受影响的引用、归档完整性和临时物去向；不把技术通过等同于发布授权。
+
+## Agent Atelier
+
+项目业务技能由根 `SKILLS.md` 和 `.agents/skills/ecom-retouch-flow/SKILL.md` 提供。当前环境另有 Agent Atelier 时，继续按其可见规范处理产物与开发决策；本机技能 junction 不随仓库发布，不要求其他使用者安装它。用户当前裁决优先，不从技能自动推导额外权限。
