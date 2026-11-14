@@ -32,7 +32,12 @@ async function cli(command, expected) {
 }
 const inWorkspace = (command) => [...command, '--workspace', workspace];
 await cli(['workspace', 'init', workspace, '--demo', '--ygl-entry', entry], 'initialized');
-let result = await cli(inWorkspace(['task', 'new', '--image', source, '--brief', '分别处理把手和门板区域，其余区域保持。离线流程演示。']), 'draft');
+const projectFile = await json('project.json', { name: '离线修图演示', original_intent: '验证两步修图、保持区和交付', business_object: 'demo-cabinet' });
+const project = (await cli(inWorkspace(['project', 'new', '--file', projectFile]))).data.project;
+const goalFile = await json('goal.json', { original_text: '分别处理把手与门板区域', interpretation: '离线两步改色演示', scope: '批准区域', preserve: '其他区域不变', acceptance: '离线像素检查通过，演示验收单独记录', confirmation: 'pending', confirmation_source: '' });
+const goal = (await cli(inWorkspace(['goal', 'new', '--project', project.id, '--file', goalFile, '--expected-revision', '0']))).data.goal;
+const bindingFile = await json('task-binding.json', { project_id: project.id, goal_id: goal.id, goal_version: goal.version, expected_output: '离线两步演示结果', done_when: '离线夹具终验和交付完成', kind: 'image' });
+let result = await cli(inWorkspace(['task', 'new', '--file', bindingFile, '--image', source, '--brief', '分别处理把手和门板区域，其余区域保持。离线流程演示。']), 'draft');
 const taskId = result.data.task_id;
 const requirementFile = await json('requirements.json', { schema_version: 'retouch.requirements/v1', groups: [
   { id: 'handle', label: '把手', text: '处理左侧把手区域（离线改色演示）', disabled: false, scope: 'operation' },

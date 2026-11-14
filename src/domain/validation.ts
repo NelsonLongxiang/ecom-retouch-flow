@@ -93,7 +93,8 @@ export function compilePlan(value: unknown, task: Task, asset: Asset, mode: Work
   for (const step of ordered) requireThat(![...groups.values()].some((group) => group.scope === 'reference') || step.reference_asset_ids.length > 0, 'MISSING_REFERENCE', '有参考用途需求时须绑定参考素材');
   const body = { schema_version: 'retouch.plan/v1' as const, task_id: task.id, revision: task.plan_revision + 1,
     title: text(input.title ?? task.title, '计划名称', 160), executor: executor as Plan['executor'], requirements_hash: task.requirements_hash,
-    original_asset_id: task.original_asset_id, working_asset_id: task.working_asset_id, steps: ordered, created_at: now() };
+    original_asset_id: task.original_asset_id, working_asset_id: task.working_asset_id, steps: ordered, created_at: now(),
+    project_id: task.project_id, goal_id: task.goal_id, goal_version: task.goal_version, design_id: task.active_design ?? null };
   return { ...body, hash: hash(body) };
 }
 

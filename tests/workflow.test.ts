@@ -17,7 +17,7 @@ test('需求按文字与停用状态参与，原文和自定义组保留', () =>
 
 test('非法计划在投影和图像处理前拒绝', async (t) => {
   const f = await fixture(); t.after(() => f.store.close());
-  const taskId = String((await f.service.createTask(f.source, '修改把手和材质')).data.task_id);
+  const taskId = String((await f.service.createTask(f.source, '修改把手和材质', undefined, f.binding)).data.task_id);
   f.service.setRequirements(taskId, groups, 0);
   const task = f.store.get<Task>('task', taskId).data, asset = f.service.assetView(task.working_asset_id);
   const cycle = planInput(); cycle.steps[0].needs = ['material'];
@@ -43,12 +43,12 @@ test('原图保留且方向规范化后建立坐标系', async (t) => {
   const jpeg = path.join(f.parent, 'oriented.jpg');
   await sharp(f.source).jpeg().withMetadata({ orientation: 6 }).toFile(jpeg);
   const before = bytesHash(await fs.readFile(jpeg));
-  const result = await f.service.createTask(jpeg, '方向测试');
+  const result = await f.service.createTask(jpeg, '方向测试', undefined, f.binding);
   const working = result.data.working as { width: number; height: number };
   assert.equal(working.width, 64); assert.equal(working.height, 96);
   assert.equal(bytesHash(await fs.readFile(jpeg)), before);
   const invalid = path.join(f.parent, 'invalid.png'); await fs.writeFile(invalid, Buffer.from('not-image'));
-  await assert.rejects(f.service.createTask(invalid, 'bad'), { code: 'IMAGE_DECODE' });
+  await assert.rejects(f.service.createTask(invalid, 'bad', undefined, f.binding), { code: 'IMAGE_DECODE' });
 });
 
 test('两步离线图像承接、保持区、终验与不可覆盖交付', async (t) => {
@@ -113,7 +113,7 @@ test('需求改变使旧运行不可继续，旧记录保留', async (t) => {
 
 test('无授权不能启动，计划 JSON 的布尔值不能授予权限', async (t) => {
   const f = await fixture(); t.after(() => f.store.close());
-  const taskId = String((await f.service.createTask(f.source, '修改两处')).data.task_id);
+  const taskId = String((await f.service.createTask(f.source, '修改两处', undefined, f.binding)).data.task_id);
   f.service.setRequirements(taskId, groups, 0); const submitted = await f.service.submitPlan(taskId, planInput(), 1);
   await assert.rejects(f.service.start(taskId, 2), { code: 'APPROVAL_REQUIRED' });
   const template = submitted.data.approval_template as object;
@@ -208,7 +208,7 @@ test('意图已提交后的本地错误明确回报 committed，并保留恢复�
 
 test('步骤 id 与对象原型属性同名时仍必须实际执行', async (t) => {
   const f = await fixture(); t.after(() => f.store.close());
-  const taskId = String((await f.service.createTask(f.source, '修改两处')).data.task_id);
+  const taskId = String((await f.service.createTask(f.source, '修改两处', undefined, f.binding)).data.task_id);
   f.service.setRequirements(taskId, groups, 0);
   const input = planInput(); input.steps[0].id = 'constructor'; input.steps[1].input = 'step:constructor'; input.steps[1].needs = ['constructor'];
   const submitted = await f.service.submitPlan(taskId, input, 1);

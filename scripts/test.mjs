@@ -29,7 +29,8 @@ for (const name of ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo']) {
   const matches = [...stdout.matchAll(new RegExp('^# ' + name + ' (\\d+)$', 'gm'))]; counts[name] = matches.length ? Number(matches.at(-1)[1]) : null;
 }
 const nativeEvidence = unitOnly ? null : await fs.readFile(path.join(runRoot, 'native-evidence.json'), 'utf8').then(JSON.parse).catch(() => null);
-const passed = exitCode === 0 && counts.tests > 0 && counts.fail === 0 && counts.cancelled === 0 && (unitOnly || counts.skipped === 0 && nativeEvidence?.verdict === 'PASS');
+const contextEvidence = unitOnly ? null : await fs.readFile(path.join(runRoot, 'context-native-evidence.json'), 'utf8').then(JSON.parse).catch(() => null);
+const passed = exitCode === 0 && counts.tests > 0 && counts.fail === 0 && counts.cancelled === 0 && (unitOnly || counts.skipped === 0 && nativeEvidence?.verdict === 'PASS' && contextEvidence?.verdict === 'PASS');
 const snapshots = [];
 async function snapshot(directory) {
   for (const item of await fs.readdir(path.join(root, directory), { withFileTypes: true })) {
@@ -41,7 +42,7 @@ async function snapshot(directory) {
 for (const directory of ['src', 'tests']) await snapshot(directory);
 for (const file of ['package.json', 'package-lock.json', 'tsconfig.json', 'scripts/test.mjs']) snapshots.push({ file, sha256: crypto.createHash('sha256').update(await fs.readFile(path.join(root, file))).digest('hex') });
 const report = { schema: 'retouch.implementation-tests/v1', verdict: passed ? 'PASS' : 'FAIL', started_at: started, finished_at: new Date().toISOString(), node_version: process.version, observed_exit_code: exitCode, counts,
-  native_ygl_integration: unitOnly ? 'NOT_RUN' : passed ? 'PASS' : 'CHECK_FAILURES', native_evidence: nativeEvidence, ygl_entry: unitOnly ? null : entry, evidence_directory: runRoot,
+  native_ygl_integration: unitOnly ? 'NOT_RUN' : passed ? 'PASS' : 'CHECK_FAILURES', native_evidence: nativeEvidence, context_native_evidence: contextEvidence, ygl_entry: unitOnly ? null : entry, evidence_directory: runRoot,
   scope: { image_ai_generation: 'NOT_RUN', paid_api_calls: 'NOT_RUN', host_protocol: 'LOCAL_FIXTURES_ONLY', malicious_agent_sandbox: 'NOT_CLAIMED' }, snapshots };
 await fs.mkdir(path.join(root, 'docs/verification'), { recursive: true });
 await fs.mkdir(path.join(root, 'docs/verification/runs'), { recursive: true });

@@ -3,6 +3,8 @@ import path from 'node:path';
 import { Images } from '../adapters/images.ts';
 import { Ygl, yglBinding } from '../adapters/ygl.ts';
 import { Store } from '../infrastructure/store.ts';
+import { Projects, type TaskBinding } from './projects.ts';
+import { planMatchesTask, type Artifact, type ArtifactReview } from '../domain/context.ts';
 import { approval, compilePlan, object, receiptText, requirements, text } from '../domain/validation.ts';
 import { active, bytesHash, hash, id, now, requireThat, RetouchError, stable, type Asset, type Attempt, type Grant, type Plan, type Result, type Run, type Step, type Task, type WorkspaceConfig } from '../domain/model.ts';
 
@@ -29,16 +31,27 @@ export class Service {
   store: Store;
   images: Images;
   ygl: YglPort;
+  projects: Projects;
   processing = new Set<string>();
   afterPrepare?: () => Promise<void>;
-  constructor(store: Store, ygl?: YglPort, afterPrepare?: () => Promise<void>) { this.store = store; this.images = new Images(store); this.ygl = ygl ?? new Ygl(store); this.afterPrepare = afterPrepare; }
-  async createTask(imageFile: string, brief: string, title?: string): Promise<Result> {
+  constructor(store: Store, ygl?: YglPort, afterPrepare?: () => Promise<void>) { this.store = store; this.images = new Images(store); this.projects = new Projects(store); this.ygl = ygl ?? new Ygl(store); this.afterPrepare = afterPrepare; }
+  async createTask(imageFile: string | undefined, brief: string, title?: string, binding?: TaskBinding): Promise<Result> {
     text(brief, 'brief');
-    const { original, working } = await this.images.import(imageFile);
-    const task: Task = { id: id('task'), title: text(title ?? brief.slice(0, 100), 'title', 160), brief, original_asset_id: original.id, working_asset_id: working.id,
-      requirements: [], requirements_hash: hash([]), plan_revision: 0, active_plan: null, active_run: null, created_at: now() };
-    this.store.transaction(() => { this.store.insert('task', task.id, task); this.store.event('task.created', { original: original.id, working: working.id }, task.id); });
-    return { result_status: 'draft', data: { task_id: task.id, revision: 0, task, original: this.assetView(original.id), working: this.assetView(working.id) }, next_actions: [{ type: 'requirement.set', reason: '填写部位修改、保持项和参考用途' }] };
+    requireThat(binding, 'CONTEXT_BINDING_REQUIRED', '任务须明确项目、目标版本、预期交付物和终止条件', 1);
+    this.projects.validateBinding(binding);
+    const kind = binding.kind ?? 'image';
+    requireThat(kind === 'design' || imageFile, 'IMAGE_REQUIRED', '图像任务必须提供原图');
+    const imported = imageFile ? await this.images.import(imageFile) : null;
+    const task: Task = { id: id('task'), title: text(title ?? brief.slice(0, 100), 'title', 160), brief, original_asset_id: imported?.original.id ?? '', working_asset_id: imported?.working.id ?? '',
+      requirements: [], requirements_hash: hash([]), plan_revision: 0, active_plan: null, active_run: null, created_at: now(), ...binding, kind, dependencies: binding.dependencies ?? [], context_status: 'current', workflow_status: 'open', blocking_reason: '', active_design: null };
+    this.store.transaction(() => {
+      this.projects.validateBinding(binding); this.store.insert('task', task.id, task);
+      this.projects.relate(task.project_id!, 'task:' + task.id, 'goal:' + task.goal_id + '@' + task.goal_version, 'serves');
+      for (const dep of task.dependencies!) this.projects.relate(task.project_id!, 'task:' + task.id, 'task:' + dep, 'depends-on');
+      if (imported) { const original = this.projects.bindImage(task, imported.original.id, 'original', 'user_original'); this.projects.bindImage(task, imported.working.id, 'working', 'derived', [original.id]); }
+      this.store.event('task.created', { original: task.original_asset_id, working: task.working_asset_id, project_id: task.project_id, goal_id: task.goal_id, goal_version: task.goal_version }, task.id);
+    });
+    return { result_status: 'draft', data: { task_id: task.id, revision: 0, task, original: imported ? this.assetView(imported.original.id) : null, working: imported ? this.assetView(imported.working.id) : null }, next_actions: [{ type: kind === 'design' ? 'design.register' : 'requirement.set', reason: '按明确的业务目标继续' }] };
   }
   async addAsset(file: string): Promise<Result> {
     const imported = await this.images.import(file);
@@ -50,8 +63,8 @@ export class Service {
   }
   taskView(taskId: string): Result {
     const entity = this.store.get<Task>('task', taskId);
-    const run = entity.data.active_run ? this.store.get<Run>('run', entity.data.active_run).data : null;
-    return { result_status: run && run.plan_hash === entity.data.active_plan ? run.status : entity.data.active_plan ? 'planned' : 'draft', data: { task_id: taskId, revision: entity.revision, task: entity.data } };
+    const progress = this.projects.progress(taskId);
+    return { result_status: progress.status, data: { task_id: taskId, revision: entity.revision, task: entity.data, progress, artifacts: this.store.list<Artifact>('artifact').filter(a => a.data.task_id === taskId).map(a => a.data) } };
   }
   setRequirements(taskId: string, value: unknown, expected: number): Result {
     const groups = requirements(value);
@@ -70,14 +83,20 @@ export class Service {
   }
   async submitPlan(taskId: string, value: unknown, expected: number): Promise<Result> {
     const task = this.store.expect<Task>('task', taskId, expected).data;
+    this.projects.ensureTask(taskId, true);
+    requireThat(task.kind !== 'design', 'TASK_KIND', '设计任务不能冒充图像生成计划');
     const asset = this.store.get<Asset>('asset', task.working_asset_id).data;
     await this.store.assetBytes(asset.id);
     const plan = compilePlan(value, task, asset, this.store.config.mode);
     for (const step of plan.steps) for (const reference of step.reference_asset_ids) await this.store.assetBytes(reference);
+    const prompts = await Promise.all(plan.steps.map(async step => { const bytes = Buffer.from(step.prompt); await this.store.object(bytes); return { sha256: bytesHash(bytes), bytes: bytes.length }; }));
     const revision = this.store.transaction(() => {
       const current = this.store.expect<Task>('task', taskId, expected);
       current.data.active_plan = plan.hash; current.data.plan_revision = plan.revision;
       this.store.insert('plan', plan.hash, plan);
+      this.projects.ensureTask(taskId, true);
+      for (const step of plan.steps) for (const reference of step.reference_asset_ids) this.projects.bindImage(task, reference, 'reference', 'reference');
+      for (const prompt of prompts) { const artifact = this.projects.recordArtifact(task, { ...prompt, object_path: 'objects/sha256/' + prompt.sha256.slice(0, 2) + '/' + prompt.sha256, type: 'prompt', purpose: 'prompt', fact_role: 'derived', source: 'frozen-plan-prompt', asset_id: null, mime: 'text/plain; charset=utf-8', width: null, height: null }); this.projects.relate(task.project_id!, 'artifact:' + artifact.id, 'plan:' + plan.hash, 'implements'); }
       const revision = this.store.update('task', taskId, current.data, expected);
       this.store.event('plan.frozen', { plan_hash: plan.hash, executor: plan.executor }, taskId);
       return revision;
@@ -95,6 +114,8 @@ export class Service {
   grant(taskId: string, value: unknown, expected: number): Result {
     return this.store.transaction(() => {
       const task = this.store.expect<Task>('task', taskId, expected), plan = this.currentPlan(taskId);
+      this.projects.ensureTask(taskId,true);
+      requireThat(planMatchesTask(plan,task.data),'STALE_CONTEXT','计划缺少或不匹配当前项目、目标或设计版本；先重提计划',1);
       const validated = approval(value, plan, this.store.get<Asset>('asset', plan.working_asset_id).data, this.store.config, this.store.root);
       const grant: Grant = { ...validated, id: id('grant'), created_at: now() };
       this.store.insert('grant', grant.id, grant);
@@ -106,12 +127,24 @@ export class Service {
   validGrant(plan: Plan, grantId?: string): Grant {
     const candidates = grantId ? [this.store.get<Grant>('grant', grantId).data] : this.store.list<Grant>('grant').map((entity) => entity.data).reverse();
     const asset = this.store.get<Asset>('asset', plan.working_asset_id).data;
-    const grant = candidates.find((item) => item.plan_hash === plan.hash && item.task_id === plan.task_id && item.executor === plan.executor && item.asset_sha256 === asset.sha256 && Date.parse(item.expires_at) > Date.now());
+    const grant = candidates.find((item) => !this.store.isHistoricalGrant(item.id) && item.plan_hash === plan.hash && item.task_id === plan.task_id && item.executor === plan.executor && item.asset_sha256 === asset.sha256 && Date.parse(item.expires_at) > Date.now());
     requireThat(grant, 'APPROVAL_REQUIRED', '缺少当前计划、素材和执行方式的有效授权', 1);
     return grant;
   }
+  authorizeRun(runId: string, expected: number): Result {
+    return this.store.transaction(() => {
+      const run = this.store.expect<Run>('run', runId, expected), plan = this.runPlan(run.data), grant = this.validGrant(plan);
+      requireThat(!this.store.list<Run>('run').some(r => r.data.id !== runId && r.data.grant_id === grant.id), 'GRANT_ALREADY_USED', '授权已绑定另一个运行', 1);
+      requireThat(!['unknown', 'cancelled', 'completed', 'failed'].includes(run.data.status), 'RUN_AUTHORIZATION_STATE', '未知请求须先对账；终结运行不重新激活', 1);
+      run.data.grant_id = grant.id; this.store.update('run', runId, run.data, expected); this.store.event('grant.rebound', { grant_id: grant.id, confirmation: grant.confirmation }, run.data.task_id, runId);
+      return this.status(runId);
+    });
+  }
   async start(taskId: string, expected: number): Promise<Result> {
-    const task = this.store.expect<Task>('task', taskId, expected), plan = this.currentPlan(taskId), grant = this.validGrant(plan);
+    this.projects.ensureTask(taskId, true);
+    const task = this.store.expect<Task>('task', taskId, expected), plan = this.currentPlan(taskId);
+    requireThat(planMatchesTask(plan,task.data),'STALE_CONTEXT','旧计划不属于当前项目、目标或设计版本；先重提计划，不创建新运行',1);
+    const grant = this.validGrant(plan);
     await this.store.assetBytes(plan.working_asset_id); await this.ygl.ensurePlan(plan);
     const run: Run = { id: id('run'), task_id: taskId, plan_hash: plan.hash, status: 'running', grant_id: grant.id, completed_steps: {}, current_attempt: null, accepted_asset_id: null, delivery: null, pending_delivery: null, created_at: now() };
     this.store.transaction(() => {
@@ -135,6 +168,8 @@ export class Service {
     const plan = this.store.get<Plan>('plan', run.plan_hash).data;
     if (current) {
       const task = this.store.get<Task>('task', run.task_id).data;
+      this.projects.ensureTask(run.task_id, true);
+      requireThat(planMatchesTask(plan,task), 'STALE_CONTEXT', '运行绑定的目标或设计版本已改变；保留原结果并复核', 1);
       requireThat(task.active_plan === run.plan_hash && task.requirements_hash === plan.requirements_hash && task.active_run === run.id, 'STALE_RUN', '需求、计划或运行已改变，旧运行只供查看与结果对账', 1);
     }
     return plan;
@@ -146,9 +181,11 @@ export class Service {
       run, attempt: attempt?.data ?? null, input: attempt ? this.assetView(attempt.data.input_asset_id) : null,
       candidate: attempt?.data.output_asset_id ? this.assetView(attempt.data.output_asset_id) : null,
       raw_host_result: attempt?.data.raw_output_asset_id ? this.assetView(attempt.data.raw_output_asset_id) : null,
-      ygl_sync: this.store.pending(run.id).length ? 'pending' : 'in_sync', pending_evidence: this.store.pending(run.id).length } };
+      ygl_sync: this.store.pending(run.id).length ? 'pending' : 'in_sync', pending_evidence: this.store.pending(run.id).length,
+      execution_permission: this.store.isHistoricalGrant(run.grant_id) ? 'historical_only' : 'local_grant_recorded' } };
     const type = this.store.pending(run.id).length && run.status === 'running' ? 'ygl.sync' : run.status === 'waiting_for_host' ? 'host.image_edit' : run.status === 'waiting_for_step_review' ? 'host.visual_review' : run.status === 'waiting_for_review' ? 'human.final_review' : run.status === 'accepted' ? 'artifact.deliver' : run.status === 'unknown' ? 'run.reconcile' : run.status === 'delivering' ? 'run.resume' : ['failed', 'cancelled'].includes(run.status) ? 'plan.revise' : run.status === 'completed' ? 'delivery.inspect' : 'run.advance';
     result.next_actions = [{ type, reason: run.status === 'unknown' ? '保留原请求，补回结果或核对宿主执行事实；不自动重发' : '按当前运行状态继续', ...(attempt ? { attempt_id: attempt.data.id, request_file: path.join(this.store.root, attempt.data.request_path) } : {}) }];
+    if (run.status === 'delivering' && run.pending_delivery?.directory === 'exports/historical-location-not-restored') result.next_actions = [{ type: 'deliver', reason: '原交付位置仅供追溯；记录适用的本地授权并 run authorize，再显式指定新的 --to，不自动写源路径' }];
     return result;
   }
   timeline(runId: string): Result {
@@ -158,6 +195,9 @@ export class Service {
   }
   next(taskId: string): Result {
     const task = this.store.get<Task>('task', taskId);
+    const progress = this.projects.progress(taskId);
+    if (progress.status === 'unknown' && progress.next === 'run.reconcile' && task.data.active_run) return this.status(task.data.active_run);
+    if (['unassigned', 'needs_review', 'unknown', 'blocked', 'completed'].includes(progress.status) || !task.data.active_run && progress.status === 'waiting_for_review' || task.data.kind === 'design') return { result_status: progress.status, data: { task_id: taskId, revision: task.revision, progress }, next_actions: [{ type: progress.next, reason: progress.blocking_reason || '按领域事实继续' }] };
     if (!task.data.requirements.some((group) => active(group) && group.scope === 'operation')) return { result_status: 'waiting_for_input', data: { task_id: taskId, revision: task.revision }, next_actions: [{ type: 'requirement.set', reason: '先填写需要修改的部位与要求' }] };
     if (!task.data.active_plan) return { result_status: 'waiting_for_plan', data: { task_id: taskId, revision: task.revision }, next_actions: [{ type: 'plan.submit', reason: '明确区域与图像承接，提交可审阅计划' }] };
     if (task.data.active_run && this.store.get<Run>('run', task.data.active_run).data.plan_hash === task.data.active_plan) return this.status(task.data.active_run);
@@ -246,6 +286,10 @@ export class Service {
       const report = await this.images.compare(attempt.input_asset_id, output.id, step.region, 'NOT_APPLICABLE', '离线测试仅验证局部图像处理与来源链；未执行 AI 语义修图。', 'deterministic-offline-provider', true);
       this.store.transaction(() => {
         const current = this.store.get<Run>('run', run.id), latest = this.store.get<Attempt>('attempt', attempt.id);
+        const task = this.projects.ensureTask(run.task_id);
+        const source = this.projects.bindImage(task, attempt.input_asset_id, 'working', 'derived');
+        const artifact = this.projects.bindImage(task, output.id, 'candidate', 'derived', [source.id]);
+        this.projects.relate(task.project_id!, 'artifact:' + artifact.id, 'attempt:' + attempt.id, 'produced-by');
         requireThat(latest.revision === entity.revision && latest.data.status === 'prepared', 'REVISION_CONFLICT', '步骤已发生变化', 1);
         latest.data.output_asset_id = output.id; latest.data.report = report; latest.data.owner_pid = null;
         const received = this.store.event('image.received', { attempt_id: attempt.id, input_asset_id: attempt.input_asset_id, output_asset_id: output.id, output_sha256: output.sha256, provider: 'offline-demo', api_cost: 0 }, run.task_id, run.id);
@@ -325,6 +369,12 @@ export class Service {
     this.store.transaction(() => {
       const replay = this.store.replay(requestId, intent); if (replay) return;
       const current = this.store.expect<Run>('run', runId, expected); this.store.expect('attempt', attempt.data.id, attempt.revision);
+      const task = this.projects.ensureTask(run.data.task_id);
+      const source = this.projects.bindImage(task, input.id, 'working', 'derived');
+      const rawArtifact = this.projects.bindImage(task, received.original.id, 'model_output', 'ai_generated', [source.id]);
+      const candidate = this.projects.bindImage(task, output.id, 'candidate', 'derived', [rawArtifact.id, source.id]);
+      this.projects.relate(task.project_id!, 'artifact:' + rawArtifact.id, 'attempt:' + attempt.data.id, 'produced-by');
+      this.projects.relate(task.project_id!, 'artifact:' + candidate.id, 'attempt:' + attempt.data.id, 'produced-by');
       attempt.data.output_asset_id = output.id; attempt.data.raw_output_asset_id = received.original.id; attempt.data.report = report;
       attempt.data.status = report.hard_verdict === 'PASS' ? 'waiting_for_review' : 'failed';
       if (current.data.status !== 'cancelled') current.data.status = report.hard_verdict === 'PASS' ? 'waiting_for_step_review' : 'failed';
@@ -357,6 +407,11 @@ export class Service {
       attempt.data.status = passed ? 'succeeded' : receipt.verdict === 'UNKNOWN' ? 'waiting_for_review' : 'failed';
       run.data.status = passed ? plan.steps.every((step) => completedOutput(run.data, step.id)) ? 'waiting_for_review' : 'running' : receipt.verdict === 'UNKNOWN' ? 'waiting_for_step_review' : 'failed';
       this.store.update('attempt', attempt.data.id, attempt.data, attempt.revision); this.store.update('run', runId, run.data, expected);
+      const artifact = this.store.list<Artifact>('artifact').find(a => a.data.task_id === run.data.task_id && a.data.asset_id === attempt.data.output_asset_id && a.data.purpose === 'candidate')?.data;
+      if (artifact) {
+        const review: ArtifactReview = { id: 'review_' + hash({ runId, requestId }), project_id: artifact.project_id, task_id: artifact.task_id, goal_id: artifact.goal_id, goal_version: artifact.goal_version, artifact_id: artifact.id, artifact_sha256: artifact.sha256, verdict: receipt.verdict as ArtifactReview['verdict'], issuer: 'agent', confirmation: String(receipt.observations), source: String(receipt.reviewer), created_at: now() };
+        this.store.insert('review', review.id, review); this.projects.relate(artifact.project_id, 'artifact:' + artifact.id, 'review:' + review.id, 'reviewed-by');
+      }
       const event = this.store.event(passed ? 'host.quality.passed' : 'host.quality.unresolved', { attempt_id: attempt.data.id, report }, run.data.task_id, runId);
       if (passed) this.store.enqueue(runId, 'qa-' + attempt.data.step_id, event);
       this.store.remember(requestId, intent, this.status(runId));
@@ -391,6 +446,11 @@ export class Service {
     this.store.transaction(() => {
       this.store.expect('run', runId, expected); this.runPlan(run.data);
       run.data.status = receipt.verdict === 'accept' ? 'accepted' : 'failed'; run.data.accepted_asset_id = receipt.verdict === 'accept' ? outputId : null;
+      for (const row of this.store.list<Artifact>('artifact')) if (row.data.task_id === run.data.task_id && row.data.asset_id === outputId && row.data.purpose === 'candidate') {
+        row.data.status = receipt.verdict === 'accept' ? 'accepted' : 'rejected'; this.store.update('artifact', row.data.id, row.data, row.revision);
+        const review: ArtifactReview = { id: 'review_' + hash({ runId, requestId, artifact: row.data.id }), project_id: row.data.project_id, task_id: row.data.task_id, goal_id: row.data.goal_id, goal_version: row.data.goal_version, artifact_id: row.data.id, artifact_sha256: row.data.sha256, verdict: receipt.verdict as 'accept' | 'reject', issuer: receipt.issuer as ArtifactReview['issuer'], confirmation: String(receipt.confirmation), source: 'run.final_review', created_at: now() };
+        this.store.insert('review', review.id, review); this.projects.relate(row.data.project_id, 'artifact:' + row.data.id, 'review:' + review.id, 'reviewed-by');
+      }
       this.store.update('run', runId, run.data, expected);
       const event = this.store.event(receipt.verdict === 'accept' ? 'human.accepted' : 'human.rejected', { receipt, asset_id: outputId, scope: this.store.config.mode }, run.data.task_id, runId);
       if (receipt.verdict === 'accept') this.store.enqueue(runId, 'accept', event);
@@ -406,7 +466,8 @@ export class Service {
     const replay = this.store.replay(requestId, intent);
     if (replay) return replay.result_status === 'delivery_prepared' ? this.finishDelivery(runId) : replay;
     const run = this.store.expect<Run>('run', runId, expected), plan = this.runPlan(run.data), grant = this.validGrant(plan, run.data.grant_id);
-    requireThat(run.data.status === 'accepted' && run.data.accepted_asset_id, 'ACCEPTANCE_REQUIRED', '交付前需要指定图像的最终接受', 1);
+    const restoredDelivery = run.data.status === 'delivering' && run.data.pending_delivery?.directory === 'exports/historical-location-not-restored';
+    requireThat((run.data.status === 'accepted' || restoredDelivery) && run.data.accepted_asset_id, 'ACCEPTANCE_REQUIRED', '交付前需要指定图像的最终接受', 1);
     requireThat(directory.startsWith(grant.delivery_root + path.sep), 'DELIVERY_SCOPE', '交付路径超出授权范围');
     requireThat(!(await fs.access(directory).then(() => true, () => false)), 'DELIVERY_EXISTS', '目标已存在，拒绝覆盖', 1);
     await this.store.assetBytes(run.data.accepted_asset_id);
@@ -414,7 +475,8 @@ export class Service {
     const asset = this.store.get<Asset>('asset', run.data.accepted_asset_id).data;
     const manifest = { schema_version: 'retouch.delivery/v1', delivery_id: id('delivery'), task_id: run.data.task_id, run_id: runId, plan_hash: plan.hash, workspace_id: this.store.config.id,
       mode: this.store.config.mode, asset_id: asset.id, image_file: 'image.png', sha256: asset.sha256, original_asset_id: plan.original_asset_id,
-      steps: plan.steps.map((step) => ({ step_id: step.id, output_asset_id: completedOutput(run.data, step.id)! })), created_at: now(), image_generation: plan.executor === 'offline' ? 'NOT_RUN_OFFLINE_DEMO' : 'HOST_RESULT_IMPORTED' };
+      steps: plan.steps.map((step) => ({ step_id: step.id, output_asset_id: completedOutput(run.data, step.id)! })), created_at: now(), image_generation: plan.executor === 'offline' ? 'NOT_RUN_OFFLINE_DEMO' : 'HOST_RESULT_IMPORTED',
+      ...(restoredDelivery ? { restored_from_delivery_id: run.data.pending_delivery!.manifest.delivery_id } : {}) };
     this.store.transaction(() => {
       this.store.expect('run', runId, expected); this.runPlan(run.data);
       run.data.status = 'delivering'; run.data.pending_delivery = { request_id: requestId, intent_hash: intent, directory, manifest };
@@ -429,6 +491,8 @@ export class Service {
     const run = this.store.get<Run>('run', runId), pending = run.data.pending_delivery;
     requireThat(pending && run.data.accepted_asset_id && run.data.status === 'delivering', 'DELIVERY_STATE', '没有可恢复的交付', 1);
     const grant = this.store.get<Grant>('grant', run.data.grant_id).data;
+    requireThat(!this.store.isHistoricalGrant(grant.id), 'APPROVAL_REQUIRED', '导入的交付意图与授权只供追溯；不能在新工作区自动继续发布', 1);
+    requireThat(pending.directory !== 'exports/historical-location-not-restored', 'DELIVERY_TARGET_REQUIRED', '恢复的交付须用 deliver --to 显式选择本工作区新位置，不直接重放原机器路径', 1);
     const parent = path.dirname(pending.directory), exportsRoot = await fs.realpath(path.join(this.store.root, 'exports'));
     requireThat(exportsRoot === path.join(this.store.root, 'exports') && pending.directory.startsWith(grant.delivery_root + path.sep), 'DELIVERY_SCOPE', '交付目录绑定不符', 1);
     await this.store.safeDirectory(path.relative(this.store.root, parent));
@@ -446,6 +510,7 @@ export class Service {
     try { await fs.writeFile(imageFile, bytes, { flag: 'wx' }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; requireThat(!(await fs.lstat(imageFile)).isSymbolicLink() && bytesHash(await fs.readFile(imageFile)) === bytesHash(bytes), 'DELIVERY_CONFLICT', '已有图片与交付内容不同', 1); }
     const manifestBytes = Buffer.from(JSON.stringify(pending.manifest, null, 2) + '\n');
+    await this.store.object(manifestBytes);
     const staged = await this.store.immutableFile('tmp/' + String(pending.manifest.delivery_id) + '/manifest.json', manifestBytes);
     try { await fs.link(staged, manifestFile); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; requireThat(!(await fs.lstat(manifestFile)).isSymbolicLink() && bytesHash(await fs.readFile(manifestFile)) === bytesHash(manifestBytes), 'DELIVERY_CONFLICT', '已有清单与本次交付不同', 1); }
@@ -455,6 +520,11 @@ export class Service {
       if (!current.data.pending_delivery) { requireThat(current.data.delivery?.manifest_sha256 === bytesHash(manifestBytes), 'DELIVERY_CONFLICT', '交付状态已变化', 1); return; }
       requireThat(current.data.pending_delivery.request_id === pending.request_id, 'DELIVERY_CONFLICT', '交付意图已变化', 1);
       current.data.delivery = { directory: pending.directory, asset_id: current.data.accepted_asset_id!, manifest_sha256: bytesHash(manifestBytes) };
+      const task = this.projects.ensureTask(current.data.task_id);
+      const image = this.projects.bindImage(task, current.data.accepted_asset_id!, 'delivery', 'derived');
+      const receipt = this.projects.recordArtifact(task, { asset_id: null, type: 'receipt', purpose: 'delivery', fact_role: 'derived', source: 'delivery.manifest', sha256: bytesHash(manifestBytes), bytes: manifestBytes.length, object_path: 'objects/sha256/' + bytesHash(manifestBytes).slice(0, 2) + '/' + bytesHash(manifestBytes), mime: 'application/json', width: null, height: null }, [image.id]);
+      for (const artifact of [image, receipt]) { const row = this.store.get<Artifact>('artifact', artifact.id); row.data.status = 'delivered'; this.store.update('artifact', artifact.id, row.data, row.revision); this.projects.relate(task.project_id!, 'artifact:' + artifact.id, 'run:' + runId, 'produced-by'); }
+      for (const row of this.store.list<Artifact>('artifact')) if (row.data.task_id === current.data.task_id && row.data.asset_id === current.data.accepted_asset_id && row.data.status === 'accepted') { row.data.status = 'delivered'; this.store.update('artifact', row.data.id, row.data, row.revision); }
       current.data.pending_delivery = null;
       if (current.data.status === 'delivering') current.data.status = 'completed';
       this.store.update('run', runId, current.data, current.revision);
@@ -472,6 +542,8 @@ export class Service {
   }
   async doctor(): Promise<Result> {
     const checks: { name: string; verdict: string; detail: string }[] = [];
+    const context = await this.projects.check();
+    for (const issue of context.data.diagnostics as { code: string; object: string; message: string }[]) checks.push({ name: issue.object, verdict: 'FAIL', detail: issue.code + ': ' + issue.message });
     for (const entity of this.store.list<Asset>('asset')) {
       try { await this.store.assetBytes(entity.data.id); checks.push({ name: entity.data.id, verdict: 'PASS', detail: 'CAS 身份匹配' }); }
       catch (error) { checks.push({ name: entity.data.id, verdict: 'FAIL', detail: (error as Error).message }); }
@@ -480,6 +552,6 @@ export class Service {
     try { const adapter = new Ygl(this.store); await adapter.verifyBinding(); ygl = await adapter.call(['doctor']); }
     catch (error) { checks.push({ name: 'ygl', verdict: 'FAIL', detail: (error as Error).message }); }
     if (Array.isArray(ygl)) for (const item of ygl) checks.push({ name: 'ygl.' + item.name, verdict: item.status === 'pass' ? 'PASS' : item.status === 'warn' ? 'WARN' : 'FAIL', detail: item.detail });
-    return { result_status: checks.some((item) => item.verdict === 'FAIL') ? 'unhealthy' : 'healthy', data: { workspace_id: this.store.config.id, checks, host_tool_availability: 'REPORTED_BY_HOST_AT_EXECUTION_TIME', api_fallback: 'not_configured' } };
+    return { result_status: checks.some((item) => item.verdict === 'FAIL') ? 'unhealthy' : 'healthy', data: { workspace_id: this.store.config.id, checks, context: context.data, host_tool_availability: 'REPORTED_BY_HOST_AT_EXECUTION_TIME', api_fallback: 'not_configured' } };
   }
 }

@@ -8,10 +8,10 @@ export class Store {
   root: string;
   config: WorkspaceConfig;
   db: DatabaseSync;
-  constructor(root: string, config: WorkspaceConfig) {
+  constructor(root: string, config: WorkspaceConfig, readOnly = false) {
     this.root = root; this.config = config;
-    this.db = new DatabaseSync(path.join(root, 'ledger.sqlite'));
-    this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
+    this.db = new DatabaseSync(path.join(root, 'ledger.sqlite'), { readOnly });
+    this.db.exec(readOnly ? 'PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;' : 'PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
   }
   static async initialize(root: string, config: WorkspaceConfig): Promise<Store> {
     const absolute = path.resolve(root);
@@ -29,25 +29,30 @@ export class Store {
       CREATE TABLE projections (plan_hash TEXT PRIMARY KEY,tree TEXT NOT NULL,fingerprint TEXT NOT NULL,task_id TEXT NOT NULL);
       CREATE TABLE outbox (id TEXT PRIMARY KEY,run_id TEXT NOT NULL,node_key TEXT NOT NULL,context TEXT NOT NULL,event_json TEXT NOT NULL,source_id TEXT,evidence_id TEXT,status TEXT NOT NULL DEFAULT 'pending');
       CREATE INDEX outbox_pending ON outbox(run_id,status);
+      CREATE INDEX entities_project ON entities(kind,json_extract(document,'$.project_id'));
+      CREATE INDEX entities_task ON entities(kind,json_extract(document,'$.task_id'));
     `);
     store.db.prepare('INSERT INTO meta VALUES (?,?)').run('workspace_id', config.id);
     store.db.prepare('INSERT INTO meta VALUES (?,?)').run('root', canonical);
     for (const directory of ['objects/sha256', 'runs', 'exports', 'tmp', 'ygl']) await fs.mkdir(path.join(canonical, directory), { recursive: true });
     return store;
   }
-  static async open(root: string): Promise<Store> {
+  static async open(root: string, readOnly = false, allowPendingImport = false): Promise<Store> {
     const canonical = await fs.realpath(path.resolve(root)).catch(() => { throw new RetouchError('WORKSPACE_NOT_FOUND', '请显式指定已初始化的 --workspace'); });
     const config = JSON.parse(await fs.readFile(path.join(canonical, 'workspace.json'), 'utf8')) as WorkspaceConfig;
     requireThat(config.schema_version === 'retouch.workspace/v1' && typeof config.id === 'string' && ['standard', 'demo'].includes(config.mode), 'INVALID_WORKSPACE', '工作区身份或 schema 无效', 1);
     await fs.access(path.join(canonical, 'ledger.sqlite'));
     requireThat(!(await fs.lstat(path.join(canonical, 'ledger.sqlite'))).isSymbolicLink() && (await fs.realpath(path.join(canonical, 'ledger.sqlite'))).startsWith(canonical + path.sep), 'WORKSPACE_BINDING', '账本路径不能指向工作区外部', 1);
-    const store = new Store(canonical, config);
+    const store = new Store(canonical, config, readOnly);
     try {
       requireThat(store.db.prepare('SELECT value FROM meta WHERE key=?').get('workspace_id')?.value === config.id && store.db.prepare('SELECT value FROM meta WHERE key=?').get('root')?.value === canonical, 'WORKSPACE_BINDING', '工作区账本与目录绑定不一致', 1);
+      requireThat(allowPendingImport || !store.db.prepare('SELECT value FROM meta WHERE key=?').get('import_pending'), 'IMPORT_INCOMPLETE', '工作区导入尚未提交；重新导入同一 ZIP 恢复，业务操作暂不可用', 1);
     } catch (error) { store.close(); throw error; }
     return store;
   }
   close() { this.db.close(); }
+  isHistoricalGrant(grantId: string): boolean { return Boolean(this.db.prepare('SELECT 1 FROM meta WHERE key=?').get('historical_grant:' + grantId)); }
+  setMeta(key: string, value: unknown) { this.db.prepare('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, stable(value)); }
   transaction<T>(operation: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = operation(); this.db.exec('COMMIT'); return result; }
@@ -110,7 +115,7 @@ export class Store {
     return this.db.prepare('SELECT tree,fingerprint,task_id FROM projections WHERE plan_hash=?').get(planHash) as { tree: string; fingerprint: string; task_id: string } | undefined ?? null;
   }
   saveProjection(planHash: string, tree: string, fingerprint: string, taskId: string) {
-    this.db.prepare('INSERT INTO projections VALUES (?,?,?,?)').run(planHash, tree, fingerprint, taskId);
+    this.db.prepare('INSERT INTO projections VALUES (?,?,?,?) ON CONFLICT(plan_hash) DO UPDATE SET tree=excluded.tree,fingerprint=excluded.fingerprint,task_id=excluded.task_id').run(planHash, tree, fingerprint, taskId);
   }
   async immutableFile(relative: string, bytes: Uint8Array): Promise<string> {
     const full = path.resolve(this.root, relative);

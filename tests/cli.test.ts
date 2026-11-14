@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fixture, ready, revision } from './fixtures.ts';
 import { type Attempt } from '../src/domain/model.ts';
+import fs from 'node:fs/promises';
 const invoke = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
 async function cli(args: string[]) {
@@ -39,4 +40,14 @@ test('真实进程中断后恢复同一尝试，不新建生成请求', async (t
   const result = await f.service.resume(runId, revision(f, runId)); assert.equal(result.result_status, 'running');
   const after = f.store.list<Attempt>('attempt'); assert.equal(after.length, 1); assert.equal(after[0].data.id, before[0].data.id); assert.equal(after[0].data.status, 'succeeded');
   assert.equal((await f.service.advance(runId, 0, 'crash-key')).replayed, true);
+});
+test('项目与 ZIP CLI 的真实 JSON 路由：绑定门槛、导出、inspect 和无写入预检', async t => {
+  const f = await fixture(); t.after(() => f.store.close()); const { taskId } = await ready(f);
+  const file = path.join(f.parent,'cli-context.zip');
+  const exported = await cli(['context','export','--project',f.binding.project_id,'--to',file,'--workspace',f.root]); assert.equal(exported.code,0); assert.equal(exported.result.result_status,'exported');
+  const inspected = await cli(['context','inspect','--file',file]); assert.equal(inspected.code,0); assert.equal(inspected.result.data.integrity,'PASS');
+  const target = path.join(f.parent,'cli-new-workspace'); const preview = await cli(['context','import','--file',file,'--workspace',target,'--dry-run']);
+  assert.equal(preview.code,0); assert.equal(preview.result.result_status,'ready_to_import'); assert.equal(await fs.access(target).then(() => true, () => false),false);
+  const shown = await cli(['project','brief',f.binding.project_id,'--workspace',f.root]); assert.equal(shown.result.data.tasks[0].task.id,taskId);
+  const incomplete = await cli(['task','new','--image',f.source,'--brief','缺少项目绑定','--workspace',f.root]); assert.equal(incomplete.code,2); assert.equal(f.store.list('task').length,1);
 });

@@ -13,7 +13,8 @@ export class Images {
     requireThat(stat.isFile() && stat.size > 0 && stat.size <= 32 * 1024 * 1024, 'IMAGE_SIZE', '图像须为非空且不超过 32 MiB 的文件');
     return fs.readFile(file);
   }
-  async metadata(bytes: Buffer): Promise<{ width: number; height: number; mime: string }> {
+  async metadata(bytes: Buffer): Promise<{ width: number; height: number; mime: string }> { return Images.metadata(bytes); }
+  static async metadata(bytes: Buffer): Promise<{ width: number; height: number; mime: string }> {
     try {
       const metadata = await sharp(bytes, { limitInputPixels: 50_000_000, failOn: 'warning' }).metadata();
       requireThat(['png', 'jpeg', 'webp'].includes(metadata.format ?? '') && (metadata.pages ?? 1) === 1 && metadata.width && metadata.height, 'IMAGE_FORMAT', '支持单帧 PNG、JPEG、WebP');

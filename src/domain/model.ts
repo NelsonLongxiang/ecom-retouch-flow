@@ -32,6 +32,9 @@ export interface Asset { id: string; sha256: string; mime: string; width: number
 export interface Task {
   id: string; title: string; brief: string; original_asset_id: string; working_asset_id: string;
   requirements: Requirement[]; requirements_hash: string; plan_revision: number; active_plan: string | null; active_run: string | null; created_at: string;
+  project_id?: string; goal_id?: string; goal_version?: number; kind?: 'image' | 'design';
+  expected_output?: string; done_when?: string; dependencies?: string[]; context_status?: 'current' | 'needs_review';
+  workflow_status?: 'open' | 'completed'; blocking_reason?: string; active_design?: string | null;
 }
 export interface Step {
   id: string; name: string; operation: 'image.edit'; input: string; needs: string[]; requirement_ids: string[];
@@ -40,6 +43,7 @@ export interface Step {
 export interface Plan {
   schema_version: 'retouch.plan/v1'; hash: string; task_id: string; revision: number; title: string; executor: Executor;
   requirements_hash: string; original_asset_id: string; working_asset_id: string; steps: Step[]; created_at: string;
+  project_id?: string; goal_id?: string; goal_version?: number; design_id?: string | null;
 }
 export interface Grant {
   id: string; task_id: string; plan_hash: string; executor: Executor; asset_sha256: string;

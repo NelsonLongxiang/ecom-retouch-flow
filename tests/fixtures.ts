@@ -39,10 +39,16 @@ export async function fixture(mode: WorkspaceConfig['mode'] = 'demo') {
   await sharp({ create: { width: 96, height: 64, channels: 4, background: { r: 230, g: 230, b: 230, alpha: 1 } } }).png().toFile(source);
   const store = await Store.initialize(root, { schema_version: 'retouch.workspace/v1', id: id('ws'), mode, ygl: { entry: 'UNIT_TEST_ONLY', version: 'fixture', source_hashes: {} }, created_at: now() });
   const ygl = new FakeYgl(store), service = new Service(store, ygl);
-  return { parent, root, source, store, ygl, service };
+  const binding = makeBinding(service);
+  return { parent, root, source, store, ygl, service, binding };
 }
-export async function ready(f: Pick<Awaited<ReturnType<typeof fixture>>, 'source' | 'store' | 'service'>, executor: 'host' | 'offline' = 'offline') {
-  const created = await f.service.createTask(f.source, '把手与门板分别修改，其余保持。');
+export function makeBinding(service: Service) {
+  const projectId = String((service.projects.create({ name: '隔离测试项目', original_intent: '验证电商局部修图的真实状态和来源', business_object: 'fixture-product' }).data.project as { id: string }).id);
+  const goal = service.projects.goal(projectId, { original_text: '按顺序修改把手与门板', interpretation: '局部连续修改', scope: '批准的两个矩形', preserve: '其余像素保持', acceptance: '保持区不变且候选由用户另行终验', confirmation: 'pending', confirmation_source: '' }, 0).data.goal as { id: string; version: number };
+  return { project_id: projectId, goal_id: goal.id, goal_version: goal.version, expected_output: '局部修图候选', done_when: '记录用户对实际最终图的接受并交付', kind: 'image' as const };
+}
+export async function ready(f: Pick<Awaited<ReturnType<typeof fixture>>, 'source' | 'store' | 'service'> & { binding?: ReturnType<typeof makeBinding> }, executor: 'host' | 'offline' = 'offline') {
+  const created = await f.service.createTask(f.source, '把手与门板分别修改，其余保持。', undefined, f.binding ?? makeBinding(f.service));
   const taskId = String(created.data.task_id);
   f.service.setRequirements(taskId, groups, 0);
   const submitted = await f.service.submitPlan(taskId, planInput(executor), 1);

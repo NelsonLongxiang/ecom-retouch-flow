@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { bytesHash, hash, requireThat, RetouchError, stable, type Plan, type YglBinding } from '../domain/model.ts';
+import { bytesHash, hash, id, requireThat, RetouchError, stable, type Plan, type YglBinding } from '../domain/model.ts';
 import type { Store } from '../infrastructure/store.ts';
+import type { ContextRecord } from '../domain/context.ts';
 
 const invoke = promisify(execFile);
 export interface Graph { nodes: { key: string; payload: unknown }[]; edges: { parent: string; child: string }[] }
@@ -66,11 +67,49 @@ export class Ygl {
     const project = await this.call(['project', 'new', this.project, '-q', 'Ecommerce retouch workflow projections; domain ledger is authoritative.']);
     requireThat(typeof project.id === 'string', 'YGL_SCHEMA', '缺少 ygl project id', 1);
   }
-  async ensurePlan(plan: Plan): Promise<void> {
+  async syncContext(projectId: string, records: ContextRecord[]): Promise<string> {
+    const digest = hash(records), recoveryKey = 'context_rebuild:' + projectId + ':' + digest;
+    const recovery = this.store.db.prepare('SELECT value FROM meta WHERE key=?').get(recoveryKey);
+    let tree = recovery ? JSON.parse(String(recovery.value)).tree : 'ctx-' + digest.slice(0, 24);
+    const existing = await this.call(['tree', 'list']);
+    requireThat(Array.isArray(existing), 'YGL_SCHEMA', '树列表必须为数组', 1);
+    const key = (kind: string, id: string) => 'c-' + hash({ kind, id }).slice(0, 32);
+    if (existing.some((item: any) => item.name === tree)) {
+      const expected = new Map(records.map(r => [key(r.kind,r.id), hash(r)]));
+      const actual = await this.node(tree,'export');
+      if (!Array.isArray(actual.nodes) || actual.nodes.some((n:any) => !expected.has(n.key) || n.payload?.record_hash !== expected.get(n.key)) || !Array.isArray(actual.edges) || actual.edges.some((e:any) => e.parent !== key('project',projectId) || !expected.has(e.child) || e.child === key('project',projectId) || e.rel !== 'enables')) {
+        tree = 'ctx-' + digest.slice(0,16) + '-' + id('r').slice(0,10);
+        this.store.setMeta(recoveryKey,{tree});
+      }
+    }
+    if (!existing.some((item: any) => item.name === tree)) await this.call(['tree', 'new', tree, '--project', this.project]);
+    for (const record of [...records].sort((a,b) => Number(b.kind === 'project') - Number(a.kind === 'project'))) {
+      await this.node(tree, 'add', key(record.kind, record.id), '--name', record.kind + ':' + record.id, '--payload', stable({ schema_version: 'retouch.index/v1', project_id: projectId, source_fingerprint: digest, record_kind: record.kind, record_id: record.id, record_hash: hash(record), ...(record.kind === 'relation' ? { relation: record.data } : {}) }));
+      if (record.kind !== 'project') await this.node(tree, 'link', key('project', projectId), key(record.kind, record.id), '--rel', 'enables', '--optional');
+    }
+    await this.node(tree, 'index');
+    const checked = await this.node(tree, 'validate'); requireThat(Array.isArray(checked.issues) && checked.issues.length === 0, 'YGL_GRAPH_INVALID', '项目上下文投影完整性检查失败', 1);
+    const actual = await this.node(tree, 'export');
+    requireThat(actual.nodes?.length === records.length && actual.nodes.every((n: any) => n.payload?.source_fingerprint === digest) && actual.edges?.length === records.length - 1, 'YGL_GRAPH_CONFLICT', '项目上下文投影与领域快照不符', 1);
+    this.store.db.prepare('DELETE FROM meta WHERE key=?').run(recoveryKey);
+    return tree;
+  }
+  async rebuildPlan(plan: Plan): Promise<void> {
+    if (!this.store.projection(plan.hash)) { await this.ensurePlan(plan); return; }
+    try { await this.checkPlan(plan); return; } catch { await this.ensurePlan(plan, true); }
+  }
+  async ensurePlan(plan: Plan, rebuild = false): Promise<void> {
     await this.verifyBinding();
     const existing = this.store.projection(plan.hash);
-    if (existing) { await this.checkPlan(plan); return; }
-    const tree = 'rt-' + plan.hash.slice(0, 24), graph = planGraph(plan);
+    if (existing && !rebuild) { await this.checkPlan(plan); return; }
+    let tree = 'rt-' + plan.hash.slice(0, 24);
+    const rebuildKey = 'projection_rebuild:' + plan.hash;
+    if (rebuild) {
+      const pending = this.store.db.prepare('SELECT value FROM meta WHERE key=?').get(rebuildKey);
+      tree = pending ? JSON.parse(String(pending.value)).tree : 'rt-' + plan.hash.slice(0, 16) + '-' + id('r').slice(0, 10);
+      this.store.setMeta(rebuildKey, { tree });
+    }
+    const graph = planGraph(plan);
     await this.call(['tree', 'new', tree, '--project', this.project]);
     for (const node of graph.nodes) {
       await this.node(tree, 'add', node.key, '--name', node.key, '--payload', stable(node.payload));
@@ -84,7 +123,13 @@ export class Ygl {
     const expectedKeys = graph.nodes.map((node) => node.key).sort();
     requireThat(stable(snapshot.nodes.map((node: any) => node.key).sort()) === stable(expectedKeys), 'YGL_GRAPH_CONFLICT', '计划投影含额外或缺失节点', 1);
     requireThat(snapshot.edges.length === graph.edges.length && snapshot.conditions.length === graph.nodes.length, 'YGL_GRAPH_CONFLICT', '计划投影结构与模板不符', 1);
-    this.store.transaction(() => { if (!this.store.projection(plan.hash)) this.store.saveProjection(plan.hash, tree, fingerprint(snapshot), plan.task_id); });
+    this.store.transaction(() => {
+      if (rebuild || !this.store.projection(plan.hash)) this.store.saveProjection(plan.hash, tree, fingerprint(snapshot), plan.task_id);
+      if (rebuild) {
+        for (const run of this.store.list<import('../domain/model.ts').Run>('run').filter(r => r.data.plan_hash === plan.hash)) this.store.db.prepare("UPDATE outbox SET status='pending',source_id=NULL,evidence_id=NULL WHERE run_id=?").run(run.data.id);
+        this.store.db.prepare('DELETE FROM meta WHERE key=?').run(rebuildKey);
+      }
+    });
   }
   async checkPlan(plan: Plan) {
     await this.verifyBinding();

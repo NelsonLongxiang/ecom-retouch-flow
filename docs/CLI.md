@@ -1,6 +1,6 @@
-# 电商修图流 CLI v1 · 0.1.0
+# 电商修图流 CLI v1 · 0.2.0
 
-这里记录实际实现的 M1–M2 接口。命令入口为 `node src/cli.ts`；文中 `retouch` 是该入口的简称，当前未安装全局命令。最初设计目录中的更广命令不自动等于已实现能力。
+这里记录当前实现接口。命令入口为 `node src/cli.ts`；文中 `retouch` 是该入口的简称，当前未安装全局命令。项目、目标、外部执行、索引与 ZIP 的完整格式和往返示例见 [项目上下文](PROJECT-CONTEXT.md)。最初设计目录中的更广命令不自动等于已实现能力。
 
 ## 最短路径
 
@@ -8,7 +8,9 @@
 
 ```text
 retouch workspace init <空目录> --ygl-entry <ygl-bin.cjs>
-retouch task new --image <原图> --brief <用户原文> --workspace <工作区> --json
+retouch project new --file <项目.json> --workspace <工作区> --json
+retouch goal new --project <project-id> --file <目标.json> --expected-revision <项目版本> --workspace <工作区> --json
+retouch task new --image <原图> --brief <用户原文> --file <任务归属.json> --workspace <工作区> --json
 retouch requirement set <task-id> --file <需求.json> --expected-revision <n> --workspace <工作区> --json
 retouch plan submit <task-id> --file <计划.json> --expected-revision <n> --workspace <工作区> --json
 retouch approval grant <task-id> --file <真实确认回执.json> --expected-revision <n> --workspace <工作区> --json
@@ -20,6 +22,32 @@ retouch next <task-id> --workspace <工作区> --json
 工作区默认 standard，执行器默认 host。`workspace init --demo` 才允许 offline 的确定性测试操作，不能把已有工作区切换成 demo。
 
 每次写入使用响应中最新的 `revision`（任务）或 `run_revision`（运行）。创建任务、导入资产和初始化没有前序版本。推进、派发、结果回接、检查、终验及交付还需要 request-id。同一请求键重放相同意图返回原记录并置 `replayed:true`；内容或版本前提不同则冲突。
+
+任务归属文件必须包含 `project_id`、`goal_id`、`goal_version`、`expected_output`、`done_when`，可选 dependencies 和 kind。缺绑定会在执行前拒绝；旧任务通过 `project bind-task` 显式迁移，旧计划不能凭迁移获得新授权。
+
+## 项目与上下文入口
+
+| 命令组 | 作用 |
+| --- | --- |
+| `project new/list/brief/bind-task/note` | 业务项目、真实用户意图、接手摘要、旧任务迁移与来源记录 |
+| `goal new/revise` | 版本化目标、范围、保持项和验收条件 |
+| `task context-review/close` | 变更后复核与当前阶段完成，区别于图片接受 |
+| `artifact register/show/list/review` | 图片、文档、提示词、规格、来源和审阅的统一索引 |
+| `design register` | 可追溯的设计／变体版本、事实与假设 |
+| `execution record/reconcile/show` | 外部意图、未知请求和已有结果补登记，不调用图像工具 |
+| `index check/rebuild` | 校验关系、真实对象及版本，重建 SQLite/ygl 投影 |
+| `context export/inspect/import` | 完整项目 ZIP 导出、只读预检、事务恢复和显式 clone |
+| `run authorize` | 用本工作区的实际确认回执绑定恢复运行，unknown 仍须先对账 |
+
+```text
+retouch context export --project <id> --workspace <来源> --to <项目.zip> --json
+retouch context inspect --file <项目.zip> --json
+retouch context import --file <项目.zip> --workspace <目标> --dry-run --json
+retouch context import --file <项目.zip> --workspace <目标> --ygl-entry <本机入口> --json
+retouch project brief <id> --workspace <目标> --json
+```
+
+已有项目的目标需显式 `--strategy merge` 或 `--strategy clone`。同快照重复导入返回 already_imported，不回滚后续本地进度；ID 内容冲突返回具体对象，禁止静默覆盖。导入不携带凭证、源机器租约或有效执行权限，不重发未知请求。导入后 ygl 不可用时显示 imported_index_pending，用 index rebuild 修投影。
 
 ## 需求文件
 
@@ -76,6 +104,6 @@ retouch next <task-id> --workspace <工作区> --json
 
 `--json` 的 stdout 只输出一个 `retouch.cli/v1` 信封，诊断在 stderr。rc0 表示命令已处理，仍须看 result_status；rc1 表示运行／存储／冲突错误；rc2 表示参数、schema 或前置数据校验失败。错误的 `effect_status` 区分 none、submitted、unknown、committed；已落账的执行意图出错会携带 run／attempt 身份，不能据通用错误直接重新发图。
 
-当前 `--dry-run`、独立 API fallback、批量、多提供商路由、任意 DAG 合流、软边／任意蒙版和自动宿主工具发现尚未实现。未知选项会报错。API key 不被读取或写入；宿主用量由宿主管理。确认回执依赖宿主／操作人真实授权，不构成同 OS 恶意 Agent 沙箱。
+`--dry-run` 仅支持 context import。独立 API fallback、局部范围 ZIP、按时间戳覆盖合并、批量、多提供商路由、任意 DAG 合流、软边／任意蒙版和自动宿主工具发现尚未实现。未知选项会报错。API key 不被读取或写入；宿主用量由宿主管理。确认回执依赖宿主／操作人真实授权，不构成同 OS 恶意 Agent 沙箱。新增错误与包边界见 [上下文诊断](PROJECT-CONTEXT.md#包边界与诊断)。
 
 Node 24.12 的 SQLite 模块带实验性诊断，版本与依赖已钉住并纳入测试；当前原生 ygl 适配要求 0.125.0 发布包完整、源码身份一致，升级需重新核验。
