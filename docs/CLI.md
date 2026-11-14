@@ -1,111 +1,103 @@
-# 电商修图流 CLI v1 · 0.2.0
+# CLI 0.3.0 · ygl 原生封装
 
-这是 0.2.0 历史实现的实际接口，不是新架构通过声明。用户最新要求底层为 ygl-trees CLI 的高级封装，当前独立账本读写入口待迁移；真实业务的新执行先遵循 [迁移规范](YGL-WRAPPER-MIGRATION.md)，下述能力在新承载下仍需复验。
+入口 `node src/cli.ts`，完整命令以 `--help --json` 为准。stdout 为单一 `retouch.cli/v2` JSON 信封；rc0 表示命令已处理，rc1 为运行／冲突错误，rc2 为参数错误。图像质量、用户接受和项目完结另查实际事实。
 
-这里记录当前实现接口。命令入口为 `node src/cli.ts`；文中 `retouch` 是该入口的简称，当前未安装全局命令。项目、目标、外部执行、索引与 ZIP 的完整格式和往返示例见 [项目上下文](PROJECT-CONTEXT.md)。最初设计目录中的更广命令不自动等于已实现能力。
+每条业务命令显式传 `--workspace <目录>`；项目内操作传 `--project <原生 id 或 name>`。写入使用稳定 `--request-id <唯一键>`；相同键异意图报冲突。更新通过 `--expected-revision` 检查版本：项目 profile 使用 `profile.version`，任务使用解码后的 `meta.retouch.revision`，运行使用解码后的 `meta.revision`。原生 artifact 的 content/meta 按原生接口保留 JSON 字符串；brief 的 profile.content 和 tasks.meta 已解码。
 
-## 最短路径
+`task show`、`task list`、`next <task-id>` 和 project brief 使用同一实际进度视图，不因没有正式 run 就把已有外部候选报成等待计划。`project timeline <id>`／`run timeline <id>` 从原生事件读取各步骤输入、执行、回接、检查和交付的回执。
 
-直接运行 `node scripts/demo.mjs --ygl-entry <已安装的 bin.cjs>` 可完整体验离线工作流。真实任务由 Agent 操作以下命令，用户通过自然语言描述需求、审阅计划和终验。
+下面 JSON 是 `--file` 文件内容示例。占位符必须换成实际响应 ID／hash，授权和接受文字必须来自真实用户。源码与业务目录分开，不在仓库根放输入文件。
 
 ```text
-retouch workspace init <空目录> --ygl-entry <ygl-bin.cjs>
-retouch project new --file <项目.json> --workspace <工作区> --json
-retouch goal new --project <project-id> --file <目标.json> --expected-revision <项目版本> --workspace <工作区> --json
-retouch task new --image <原图> --brief <用户原文> --file <任务归属.json> --workspace <工作区> --json
-retouch requirement set <task-id> --file <需求.json> --expected-revision <n> --workspace <工作区> --json
-retouch plan submit <task-id> --file <计划.json> --expected-revision <n> --workspace <工作区> --json
-retouch approval grant <task-id> --file <真实确认回执.json> --expected-revision <n> --workspace <工作区> --json
-retouch run start <task-id> --expected-revision <n> --workspace <工作区> --json
-retouch run advance <run-id> --request-id <唯一请求键> --expected-revision <n> --workspace <工作区> --json
-retouch next <task-id> --workspace <工作区> --json
+node src/cli.ts workspace init <空目录> --ygl-entry <ygl/dist/bundle/bin.cjs> --json
+node src/cli.ts project new --file <project.json> --request-id <key> --workspace <目录> --json
 ```
 
-工作区默认 standard，执行器默认 host。`workspace init --demo` 才允许 offline 的确定性测试操作，不能把已有工作区切换成 demo。
+```json
+{"name":"柜体商品图","intent":"修复柜门纹理，保留真实结构","tags":["类目:家具","部位:柜门","风格:原木"]}
+```
 
-每次写入使用响应中最新的 `revision`（任务）或 `run_revision`（运行）。创建任务、导入资产和初始化没有前序版本。推进、派发、结果回接、检查、终验及交付还需要 request-id。同一请求键重放相同意图返回原记录并置 `replayed:true`；内容或版本前提不同则冲突。
+`goal new --project <id> --file <goal.json> --request-id <key>`：
 
-任务归属文件必须包含 `project_id`、`goal_id`、`goal_version`、`expected_output`、`done_when`，可选 dependencies 和 kind。缺绑定会在执行前拒绝；旧任务通过 `project bind-task` 显式迁移，旧计划不能凭迁移获得新授权。
+```json
+{"title":"柜门高清重绘","scope":"修复柜门表面","preserve":["柜体结构不变","把手位置不变"],"done_when":"用户接受实际候选并交付","source":"用户原始需求"}
+```
 
-## 项目与上下文入口
+同标题目标追加原生 spec 版本，旧任务不会静默切换。先对账 unknown，再 `task context-review <task-id>`，文件为 `{"goal":"<新目标 spec id>","statement":"实际复核依据"}`，绑定新目标并清除旧计划指针。
 
-| 命令组 | 作用 |
+`task new --project <id> --file <task.json> --request-id <key>`：
+
+```json
+{"goal":"<原生目标 spec id>","title":"精修柜门","brief":"保留用户原文","expected_output":"商品图候选","done_when":"实际验收及交付","kind":"image","dependencies":[]}
+```
+
+设计任务用 `kind:design`。`requirement set <task-id> --file <requirements.json> --expected-revision <rev> --request-id <key>`：
+
+```json
+{"groups":[{"id":"door","text":"修复柜门纹理，可在此补充要求","disabled":false,"scope":"operation"},{"id":"keep","text":"其余部位保持","disabled":false,"scope":"preserve"}]}
+```
+
+空白或 disabled 组不参与。`asset add --project <id> --task <id> --file <本地图> --role original --request-id <key>` 登记原图；参考图为 reference。派生图可以 `--parent <media-id>`。实际尺寸/hash 从字节读取；`asset resize <media-id> --width 2048 --height 2048 --request-id <key>` 创建独立后处理产物。
+
+`plan submit <task-id> --file <plan.json> --expected-revision <rev> --request-id <key>`：
+
+```json
+{"input":"<原生 media id>","steps":[{"id":"door","prompt":"修复柜门纹理，保持结构","needs":[],"region":{"x":10,"y":10,"width":100,"height":100},"coordinate_system":{"width":200,"height":200}}]}
+```
+
+无 region 表示全图处理；局部步骤按明确坐标系校验，前序尺寸变化后不能套用旧坐标。顺序依赖只能指向前序步骤。计划返回 `plan`、`plan_hash` 和空白确认的 `approval_template`，有效需求正文一同冻结。
+
+`approval grant <task-id> --file <grant.json> --request-id <key>`：
+
+```json
+{"plan_id":"<plan.id>","plan_hash":"<plan_hash>","issuer":"host-human","confirmation":"真实用户对该范围的授权原文","expires_at":"<实际未来 ISO 时间>"}
+```
+
+`run start <task-id> --file <start.json> --request-id <key>`，文件为 `{"grant":"<authorization id>"}`。每份授权只用于一次运行。运行流程：
+
+```text
+run dispatch <run-id> --expected-revision <rev> --request-id <key>
+run complete <run-id> --file <实际宿主输出图> --expected-revision <rev> --request-id <key>
+run review <run-id> --file <review.json> --expected-revision <rev> --request-id <key>
+run accept <run-id> --file <accept.json> --expected-revision <rev> --request-id <key>
+run deliver <run-id> --to <独立交付目录> --expected-revision <rev> --request-id <key>
+```
+
+这些命令都传 workspace/project。dispatch 只有首次返回 `allow_execute:true` 才允许宿主调用一次；重放为 false。complete 直接接收实际图像文件，不调用模型。review 示例：
+
+```json
+{"sha256":"<实际候选 hash>","verdict":"PASS","observations":"实际看图得到的观察与保持项检查","reviewer":"实际检查者","source":"实际来源"}
+```
+
+accept 文件：`{"sha256":"<实际候选 hash>","statement":"用户接受原文","source":"user"}`。unknown 用 `run unknown` 保存 statement；真实结果回来仍用 run complete。运行结果查询用 `run status`。外部操作通过 `execution record/reconcile` 记录 `task/status/inputs/outputs/statement/source`；状态 unknown 不允许自动重发。
+
+run complete 可加 `--metadata <回执.json>`，字段为 `tool` 和去敏后的 `tool_receipt`，记录实际宿主工具名称及回执。未提供时来源保持未指定，不补造提供商或真实 AI 执行证明。相同请求不能替换图像或来源回执。
+
+已有外部候选用 `artifact review <id>`：文件含 sha256/verdict/observations/reviewer/source，用户接受再加 `accepted:true` 和 `source:user`。`artifact deliver <id> --to <目录> --request-id <key>` 直接交付已接受的真实文件。`task close <id>` 需 revision 与 `{"statement":"完成依据"}`；图像任务核对实际交付，设计任务核对设计工件。
+
+`design register`／`spec register` 文件字段为 title/content/role/source，可传 `--task`。role 使用 user-original、confirmed-fact、agent-interpretation、hypothesis 或 reference；不得把 AI 生成视为商品确认事实。
+
+项目维护命令：
+
+| 命令 | JSON 文件 |
 | --- | --- |
-| `project new/list/brief/bind-task/note` | 业务项目、真实用户意图、接手摘要、旧任务迁移与来源记录 |
-| `goal new/revise` | 版本化目标、范围、保持项和验收条件 |
-| `task context-review/close` | 变更后复核与当前阶段完成，区别于图片接受 |
-| `artifact register/show/list/review` | 图片、文档、提示词、规格、来源和审阅的统一索引 |
-| `design register` | 可追溯的设计／变体版本、事实与假设 |
-| `execution record/reconcile/show` | 外部意图、未知请求和已有结果补登记，不调用图像工具 |
-| `index check/rebuild` | 校验关系、真实对象及版本，重建 SQLite/ygl 投影 |
-| `context export/inspect/import` | 完整项目 ZIP 导出、只读预检、事务恢复和显式 clone |
-| `run authorize` | 用本工作区的实际确认回执绑定恢复运行，unknown 仍须先对账 |
+| project tags | tags 数组，source 为 user 或 authorized-agent |
+| project feedback | 可空 rating（1–5），conclusion 用户原文，source:user |
+| project close | reason:achieved/stopped/remaining，statement 用户决定原文 |
+| project reopen | 不需文件；记录新 profile 版本，授权仍单独判断 |
 
-```text
-retouch context export --project <id> --workspace <来源> --to <项目.zip> --json
-retouch context inspect --file <项目.zip> --json
-retouch context import --file <项目.zip> --workspace <目标> --dry-run --json
-retouch context import --file <项目.zip> --workspace <目标> --ygl-entry <本机入口> --json
-retouch project brief <id> --workspace <目标> --json
-```
+这些命令均需要 project、profile 的 expected-revision 和 request-id。brief 返回真实未完成工作与提醒，不以缺评分阻塞修图。
 
-已有项目的目标需显式 `--strategy merge` 或 `--strategy clone`。同快照重复导入返回 already_imported，不回滚后续本地进度；ID 内容冲突返回具体对象，禁止静默覆盖。导入不携带凭证、源机器租约或有效执行权限，不重发未知请求。导入后 ygl 不可用时显示 imported_index_pending，用 index rebuild 修投影。
+`workspace register <已有目录> --request-id <key>` 登记跨工作区范围；可用文件 `{"authority_for":["<项目原生 id>"]}` 指明分歧时的唯一权威。没有明确权威的不同快照列为 conflict，不按修改时间合并。
 
-## 需求文件
+`taste view` 输出标签涉及的不同项目数降序、二次分类、共现分母、评分数量与均分。`method register --project <id> --file <method.json> --request-id <key>` 的文件：
 
 ```json
-{
-  "schema_version": "retouch.requirements/v1",
-  "groups": [
-    {"id":"handle","label":"把手","text":"将指定把手改为圆形","disabled":false,"scope":"operation"},
-    {"id":"material","label":"门板","text":"改为浅橡木纹","disabled":false,"scope":"operation"},
-    {"id":"keep","label":"保持项","text":"其他结构、背景和前序改动保持","disabled":false,"scope":"preserve"}
-  ]
-}
+{"title":"电商部位分类","source":"方法定义来源","method":{"schema":"retouch.method/v1","version":"1","minimum_samples":3,"rules":[{"tag":"柜门","dimension":"部位","value":"柜门"}]}}
 ```
 
-文本非空且未停用即参与，空白和停用项仍保存原文。scope 支持 operation、preserve、reference；reference 需求需要步骤绑定对应的 `reference_asset_ids`。`asset add --file` 返回可用于计划的规范化素材身份。
+`taste view --project <方法所属项目> --method <methodology id>` 引用精确方法版本；`context build --project <id> --query <关键词> --method <id>` 组装当前目标、引用诊断、检索来源、方法与分析。宿主 Agent 阅读正文后提出专业建议，不把统计直接当建议结论。
 
-## 计划文件
+`context search --query <关键词>` 搜索全部登记工作区的原生 design/spec。`context cite --project <目标> --task <可选任务> --file <引用.json> --request-id <key>` 保存 workspace_id/project_id/artifact_id/version/content_hash/purpose/conditions，正文由实际来源读取并保全，不信任调用方粘贴替代。引用保持精确版本，context build 报告 stale/unavailable/conflict。
 
-```json
-{
-  "schema_version":"retouch.plan/v1",
-  "title":"改把手，再换门板材质",
-  "executor":"host",
-  "steps":[
-    {"id":"handle","name":"改把手","operation":"image.edit","input":"original","needs":[],"requirement_ids":["handle"],"region":{"x":8,"y":8,"width":8,"height":8}},
-    {"id":"material","name":"换材质","operation":"image.edit","input":"step:handle","needs":["handle"],"requirement_ids":["material"],"region":{"x":40,"y":20,"width":20,"height":16}}
-  ]
-}
-```
-
-这些坐标仅展示格式；真实区域须按规范化工作图确认。首版支持单条连续图像写入链、固定画布、整数矩形。每个有效修改需求必须被覆盖，后一步的 input 与依赖需明确承接前一步；环、未知节点、越界区域和停用需求会被拒绝。可选 `prompt` 补充本步要求；CLI 自动携带有效需求和共享约束。
-
-提交后冻结计划 hash，建立独立 ygl 树并验证结构，返回授权模板。模板的 `confirmation` 为空，不能直接当成已确认回执；须记录实际用户确认。一份授权绑定一次运行、覆盖其已批准步骤；取消未知请求不会恢复这份授权，新运行须有新的实际确认回执。需求改变会使旧运行不可再推进，旧计划、图片和事件保留。
-
-## 执行、检查与交付
-
-| 命令 | 实际行为 |
-|---|---|
-| `run status/timeline` | 查询状态、输入、候选、事件和待同步证据 |
-| `run advance` | offline 处理一次本地图像；host 返回任务单，等待宿主 |
-| `run dispatch` | 记录一次宿主执行意图，后续状态 unknown；只在首次非重放响应后调用工具 |
-| `run complete --file` | 核对原请求绑定，导入真实宿主文件，保留原始结果并合成批准区域 |
-| `run review --file` | 对实际合成候选记录 PASS／FAIL／UNKNOWN；PASS 才放行下一步 |
-| `review accept/reject --file` | 记录指定运行、计划与图片 hash 的真实用户终验 |
-| `deliver --to` | 在授权 exports 范围创建独占目录，验证图片，原子发布 manifest 作为交付完成标记 |
-| `run resume/reconcile` | 恢复已准备的本地操作或未完交付；unknown 宿主请求只核对，不重新出图 |
-| `run cancel` | 停止后续步骤；不宣称宿主已取消或费用已免除。迟到结果仍可回接留痕 |
-| `ygl sync` | 仅补图、证据与状态投影，不重新生成图片 |
-| `doctor` | 核对 CAS 与本工作区 ygl 健康，不联网探测图像 API |
-
-宿主回执格式与操作顺序见 [宿主协议](HOST-EXECUTOR.md)。demo 演示的授权、检查与接受均明确标记为夹具，交付 manifest 包含 `mode:demo` 与 `NOT_RUN_OFFLINE_DEMO`。
-
-## 机器契约与限制
-
-`--json` 的 stdout 只输出一个 `retouch.cli/v1` 信封，诊断在 stderr。rc0 表示命令已处理，仍须看 result_status；rc1 表示运行／存储／冲突错误；rc2 表示参数、schema 或前置数据校验失败。错误的 `effect_status` 区分 none、submitted、unknown、committed；已落账的执行意图出错会携带 run／attempt 身份，不能据通用错误直接重新发图。
-
-`--dry-run` 仅支持 context import。独立 API fallback、局部范围 ZIP、按时间戳覆盖合并、批量、多提供商路由、任意 DAG 合流、软边／任意蒙版和自动宿主工具发现尚未实现。未知选项会报错。API key 不被读取或写入；宿主用量由宿主管理。确认回执依赖宿主／操作人真实授权，不构成同 OS 恶意 Agent 沙箱。新增错误与包边界见 [上下文诊断](PROJECT-CONTEXT.md#包边界与诊断)。
-
-Node 24.12 的 SQLite 模块带实验性诊断，版本与依赖已钉住并纳入测试；当前原生 ygl 适配要求 0.125.0 发布包完整、源码身份一致，升级需重新核验。
+ZIP、旧版迁移和恢复示例见 [项目上下文](PROJECT-CONTEXT.md)。`index check/rebuild --project <id>` 核对文件和原生图，不调用模型。`doctor` 输出原生健康检查，各检查结论须单独阅读。

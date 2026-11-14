@@ -1,7 +1,7 @@
 // Verified native CLI transport for developer probes/capture; callers must supply an explicit home and cwd.
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {yglBinding} from '../../src/adapters/ygl.ts';
+import {binding as yglBinding} from '../../src/native/client.ts';
 const invoke=promisify(execFile);
 export async function nativeClient(entry,{home,cwd,session}) {
   if(!home||!cwd||!session)throw new Error('Native CLI requires explicit home, cwd and session.');

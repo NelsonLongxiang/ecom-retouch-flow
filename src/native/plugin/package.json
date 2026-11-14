@@ -1,0 +1,7 @@
+{
+  "name": "ygl-plugin-ecom-retouch",
+  "version": "0.3.0",
+  "private": true,
+  "main": "index.cjs",
+  "yglTrees": "0.125.0"
+}

@@ -47,7 +47,7 @@ test('实际 ygl CLI：两步交付、证据、context 隔离、跨进程竞争�
   async function advancing(key: string) {
     let stdout = '', code = 0;
     try {
-      ({ stdout } = await invoke(process.execPath, ['src/cli.ts', 'run', 'advance', nextId, '--workspace', root, '--expected-revision', '0', '--request-id', key, '--json'],
+      ({ stdout } = await invoke(process.execPath, ['src/legacy-cli.ts', 'run', 'advance', nextId, '--workspace', root, '--expected-revision', '0', '--request-id', key, '--json'],
         { cwd: projectRoot, windowsHide: true, timeout: 120000, env: { ...process.env, YGL_HOME: sentinel, YGL_DB_URL: 'postgres://unused-test-target/never-connect' } }));
     } catch (error) { stdout = (error as { stdout: string }).stdout; code = Number((error as { code: number }).code); }
     return { code, output: JSON.parse(stdout) };

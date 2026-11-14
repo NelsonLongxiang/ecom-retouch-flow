@@ -11,7 +11,7 @@ const invoke = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
 async function cli(args: string[]) {
   let stdout = '', code = 0;
-  try { ({ stdout } = await invoke(process.execPath, ['src/cli.ts', ...args, '--json'], { cwd: root, windowsHide: true, timeout: 30000 })); }
+  try { ({ stdout } = await invoke(process.execPath, ['src/legacy-cli.ts', ...args, '--json'], { cwd: root, windowsHide: true, timeout: 30000 })); }
   catch (error) { stdout = (error as { stdout: string }).stdout; code = Number((error as { code: number }).code); }
   const result = JSON.parse(stdout.trim());
   return { result, code, stdout };

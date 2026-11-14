@@ -1,196 +1,792 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
-import { Service, initializeWorkspace } from './application/service.ts';
-import { Store } from './infrastructure/store.ts';
-import { object } from './domain/validation.ts';
-import { requireThat, RetouchError, type Result } from './domain/model.ts';
-import { Projects, type TaskBinding } from './application/projects.ts';
-import { exportContext, inspectContext, inspectedResult, importContext, previewImport, rebuildContextIndex, type ImportStrategy } from './application/context-exchange.ts';
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+import { NativeClient } from "./native/client.ts";
+import {
+  registerMedia,
+  resizeMedia,
+  completeRun,
+  deliverRun,
+  deliverArtifact,
+  objectBytes,
+} from "./native/files.ts";
+import {
+  exportProject,
+  inspectProject,
+  importProject,
+} from "./native/exchange.ts";
+import {
+  registerWorkspace,
+  taste,
+  searchContext,
+  cite,
+  citationStatus,
+} from "./native/context.ts";
+import { requireThat, RetouchError } from "./domain/model.ts";
 
+const version = "0.3.0";
 const options = {
-  workspace: { type: 'string' }, json: { type: 'boolean' }, help: { type: 'boolean' }, version: { type: 'boolean' },
-  'ygl-entry': { type: 'string' }, demo: { type: 'boolean' }, image: { type: 'string' }, brief: { type: 'string' }, title: { type: 'string' },
-  file: { type: 'string' }, 'expected-revision': { type: 'string' }, 'request-id': { type: 'string' }, to: { type: 'string' },
-  project: { type: 'string' }, goal: { type: 'string' }, 'goal-version': { type: 'string' }, 'expected-output': { type: 'string' }, 'done-when': { type: 'string' }, kind: { type: 'string' },
-  metadata: { type: 'string' }, 'dry-run': { type: 'boolean' }, strategy: { type: 'string' },
+  workspace: { type: "string" },
+  json: { type: "boolean" },
+  help: { type: "boolean" },
+  version: { type: "boolean" },
+  "ygl-entry": { type: "string" },
+  file: { type: "string" },
+  metadata: { type: "string" },
+  project: { type: "string" },
+  task: { type: "string" },
+  "request-id": { type: "string" },
+  "expected-revision": { type: "string" },
+  to: { type: "string" },
+  role: { type: "string" },
+  parent: { type: "string" },
+  width: { type: "string" },
+  height: { type: "string" },
+  query: { type: "string" },
+  "dry-run": { type: "boolean" },
+  strategy: { type: "string" },
+  name: { type: "string" },
+  method: { type: "string" },
 } as const;
-const commands: Record<string, { operands: number; flags: string[]; description: string }> = {
-  'workspace init': { operands: 1, flags: ['ygl-entry', 'demo'], description: '在明确目录初始化工作区与独立 ygl home' },
-  'task new': { operands: 0, flags: ['image', 'brief', 'title', 'file', 'project', 'goal', 'goal-version', 'expected-output', 'done-when', 'kind'], description: '绑定项目与目标版本，建立图像或设计任务' },
-  'task show': { operands: 1, flags: [], description: '查看任务与版本' },
-  'task list': { operands: 0, flags: [], description: '列出本工作区任务' },
-  'asset add': { operands: 0, flags: ['file'], description: '导入原图／参考图' },
-  'asset show': { operands: 1, flags: [], description: '核验素材字节与身份' },
-  'requirement set': { operands: 1, flags: ['file', 'expected-revision'], description: '保存需求组：有文字且未停用即参与' },
-  'plan submit': { operands: 1, flags: ['file', 'expected-revision'], description: '编译、冻结并投影计划，默认 host 执行' },
-  'plan show': { operands: 1, flags: [], description: '查看当前冻结计划' },
-  'plan check': { operands: 1, flags: [], description: '核对计划投影与版本' },
-  'approval grant': { operands: 1, flags: ['file', 'expected-revision'], description: '记录用户／宿主确认回执' },
-  'run start': { operands: 1, flags: ['expected-revision'], description: '绑定计划、授权与输入，创建运行' },
-  'run advance': { operands: 1, flags: ['expected-revision', 'request-id'], description: '推进一步；host 模式返回待执行任务单' },
-  'run dispatch': { operands: 1, flags: ['expected-revision', 'request-id'], description: '记录一次宿主工具执行意图，防止恢复时盲目重发' },
-  'run complete': { operands: 1, flags: ['file', 'expected-revision', 'request-id'], description: '回接真实宿主结果并合成批准区域' },
-  'run review': { operands: 1, flags: ['file', 'expected-revision', 'request-id'], description: '记录实际候选图的视觉检查' },
-  'run status': { operands: 1, flags: [], description: '查询状态、图片与下一步' },
-  'run timeline': { operands: 1, flags: [], description: '查询事件时间线' },
-  'run resume': { operands: 1, flags: ['expected-revision'], description: '恢复本地准备或交付，不重发未知宿主请求' },
-  'run reconcile': { operands: 1, flags: ['expected-revision'], description: '核对当前状态，不自动重新生成图片' },
-  'run cancel': { operands: 1, flags: ['expected-revision'], description: '停止后续步骤，保留已有请求与结果' },
-  'review show': { operands: 1, flags: [], description: '查看终验候选' },
-  'review accept': { operands: 1, flags: ['file', 'expected-revision', 'request-id'], description: '记录指定图像的用户最终接受' },
-  'review reject': { operands: 1, flags: ['file', 'expected-revision', 'request-id'], description: '记录用户要求修正' },
-  'ygl sync': { operands: 1, flags: [], description: '仅补投影和证据，不生成图片' },
-  'ygl check': { operands: 1, flags: [], description: '核对冻结图' },
-  next: { operands: 1, flags: [], description: '给一个具体下一步或必要问题' },
-  deliver: { operands: 1, flags: ['to', 'expected-revision', 'request-id'], description: '交付已接受图片与清单，拒绝覆盖' },
-  doctor: { operands: 0, flags: [], description: '本地对象库与 ygl 健康检查' },
-  capabilities: { operands: 0, flags: [], description: '宿主优先、离线演示与 API fallback 边界' },
-  'project new': { operands: 0, flags: ['file'], description: '建立有原始业务意图的项目' },
-  'project list': { operands: 0, flags: [], description: '列出业务项目，区别于源码仓库与工作区' },
-  'project brief': { operands: 1, flags: [], description: '读取账本生成的目标、设计、进度、产物和下一步' },
-  'project bind-task': { operands: 1, flags: ['file', 'expected-revision'], description: '显式迁移既有任务或重绑当前目标版本' },
-  'project note': { operands: 0, flags: ['project', 'file', 'request-id'], description: '登记用户原文、确认事实、假设和待确认来源' },
-  'goal new': { operands: 0, flags: ['project', 'file', 'expected-revision'], description: '建立范围、保持项和验收明确的目标版本' },
-  'goal revise': { operands: 1, flags: ['project', 'file', 'expected-revision'], description: '追加目标版本，仅标记受影响的下游工作' },
-  'task context-review': { operands: 1, flags: ['file', 'expected-revision'], description: '记录对变更后任务上下文的实际复核' },
-  'task close': { operands: 1, flags: ['file', 'expected-revision'], description: '核对阶段交付物与终止条件后关闭任务' },
-  'artifact register': { operands: 1, flags: ['file', 'metadata', 'request-id'], description: '登记真实文件及用途、来源和派生关系' },
-  'artifact show': { operands: 1, flags: [], description: '查询产物版本、文件、归属与双向关系' },
-  'artifact list': { operands: 0, flags: ['project'], description: '按项目查询统一产物索引' },
-  'artifact review': { operands: 1, flags: ['file', 'expected-revision', 'request-id'], description: '对实际产物 hash 记录检查或用户接受' },
-  'design register': { operands: 1, flags: ['file', 'expected-revision'], description: '追加设计／变体版本、来源事实和假设' },
-  'execution record': { operands: 1, flags: ['file', 'request-id'], description: '登记外部执行意图或已经发生的事实，不发出请求' },
-  'execution reconcile': { operands: 1, flags: ['file', 'expected-revision', 'request-id'], description: '回接同一外部操作的真实结果，不重新生成' },
-  'execution show': { operands: 1, flags: [], description: '查询外部请求、输入输出与恢复状态' },
-  'index check': { operands: 0, flags: ['project'], description: '检查归属、关系、版本、对象 hash 与索引状态' },
-  'index rebuild': { operands: 0, flags: ['project'], description: '从领域账本重建 SQLite 和 ygl 投影，不出图' },
-  'context export': { operands: 0, flags: ['project', 'to'], description: '导出完整项目、关系和必要素材为单个 ZIP' },
-  'context inspect': { operands: 0, flags: ['file'], description: '只读验证 ZIP 的版本、清单、hash 和领域关系' },
-  'context import': { operands: 0, flags: ['file', 'dry-run', 'strategy', 'ygl-entry'], description: '预检或事务恢复 ZIP；重复导入幂等，不执行图像工具' },
-  'run authorize': { operands: 1, flags: ['expected-revision'], description: '将本工作区新记录的有效授权绑定已有恢复运行' },
+type Command = {
+  operands: number;
+  flags: string[];
+  description: string;
+  action?: string;
+  readonly?: boolean;
 };
-export async function readJSON(file: string): Promise<unknown> {
-  const stat = await fs.stat(file).catch(() => { throw new RetouchError('INPUT_FILE_NOT_FOUND', 'JSON 输入文件不存在', 2); });
-  requireThat(stat.isFile() && stat.size <= 1024 * 1024, 'INPUT_SIZE', 'JSON 输入须为不超过 1 MiB 的文件');
-  try { return JSON.parse(await fs.readFile(file, 'utf8')); }
-  catch { throw new RetouchError('INPUT_JSON', '输入文件不是有效 JSON；未执行写操作', 2); }
+const commands: Record<string, Command> = {
+  "workspace init": {
+    operands: 1,
+    flags: ["ygl-entry"],
+    description: "建立隔离 ygl 原生工作区并安装本项目原生扩展",
+  },
+  "workspace register": {
+    operands: 1,
+    flags: ["file", "request-id"],
+    description: "登记已有工作区，可明确指定 authority_for 项目身份",
+  },
+  "workspace list": {
+    operands: 0,
+    flags: [],
+    description: "读取 ygl 原生工作区登记信息",
+    action: "workspace-list",
+    readonly: true,
+  },
+  "project new": {
+    operands: 0,
+    flags: ["file", "request-id"],
+    description: "建立 ygl project、原生 profile、标签与关系",
+    action: "project-new",
+  },
+  "project list": {
+    operands: 0,
+    flags: [],
+    description: "列出 ygl 原生电商项目",
+    action: "projects",
+    readonly: true,
+  },
+  "project brief": {
+    operands: 1,
+    flags: [],
+    description: "接手：真实进度、未知请求、评分结语与收口提醒",
+  },
+  "project timeline": {
+    operands: 1,
+    flags: [],
+    description: "从原生事件读取项目时间线",
+  },
+  "project tags": {
+    operands: 0,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "更新有效标签并保留原生版本历史",
+    action: "project-tags",
+  },
+  "project feedback": {
+    operands: 0,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "记录用户评分与结语；缺失评分为 null",
+    action: "project-feedback",
+  },
+  "project close": {
+    operands: 0,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "记录用户完结决定与实际遗留任务",
+    action: "project-close",
+  },
+  "project reopen": {
+    operands: 0,
+    flags: ["project", "expected-revision", "request-id"],
+    description: "重新打开项目；历史授权不因此恢复",
+    action: "project-reopen",
+  },
+  "goal new": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "以原生 spec 保存有范围和验收的目标版本",
+    action: "goal-new",
+  },
+  "task new": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "建立绑定原生目标与交付条件的 task",
+    action: "task-new",
+  },
+  "task show": {
+    operands: 1,
+    flags: ["project"],
+    description: "读取原生任务",
+    action: "task-view",
+    readonly: true,
+  },
+  "task list": {
+    operands: 0,
+    flags: ["project"],
+    description: "列出项目任务的实际派生进度",
+    action: "task-list",
+    readonly: true,
+  },
+  next: {
+    operands: 1,
+    flags: ["project"],
+    description: "从项目真实状态给出该任务下一步",
+    action: "task-next",
+    readonly: true,
+  },
+  "task close": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "核对真实交付再完成任务",
+    action: "task-close",
+  },
+  "task context-review": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "显式复核并绑定新的目标版本；保留历史结果",
+    action: "task-context-review",
+  },
+  "requirement set": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "需求有文字且未停用即参与",
+    action: "requirements",
+  },
+  "design register": {
+    operands: 0,
+    flags: ["project", "task", "file", "request-id"],
+    description: "原生 design；明确事实角色与来源",
+  },
+  "spec register": {
+    operands: 0,
+    flags: ["project", "task", "file", "request-id"],
+    description: "原生 spec；明确事实角色与来源",
+  },
+  "method register": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "将版本化分类方法保存为原生 methodology 工件",
+  },
+  "asset add": {
+    operands: 0,
+    flags: ["project", "task", "file", "role", "parent", "request-id"],
+    description: "登记真实图像字节、尺寸与原生派生关系",
+  },
+  "asset resize": {
+    operands: 1,
+    flags: ["project", "width", "height", "request-id"],
+    description: "显式后处理，保留模型原生结果与尺寸来源",
+  },
+  "artifact show": {
+    operands: 1,
+    flags: ["project"],
+    description: "读取原生工件",
+    action: "show",
+    readonly: true,
+  },
+  "artifact review": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "绑定实际图片 hash 记录检查和用户接受",
+    action: "media-review",
+  },
+  "artifact deliver": {
+    operands: 1,
+    flags: ["project", "to", "request-id"],
+    description: "交付已接受的外部候选，无需重新出图",
+  },
+  "execution record": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "登记外部执行事实；unknown 保持未知",
+    action: "execution-record",
+  },
+  "execution reconcile": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "回接真实结果，不重新出图",
+    action: "execution-reconcile",
+  },
+  "plan submit": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "冻结有顺序和依赖的宿主修图计划",
+    action: "plan",
+  },
+  "approval grant": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "记录绑定当前工作区与计划的用户授权",
+    action: "grant",
+  },
+  "run start": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "消费一次授权，创建原生 execution",
+    action: "run-start",
+  },
+  "run dispatch": {
+    operands: 1,
+    flags: ["project", "expected-revision", "request-id"],
+    description: "原子记录宿主执行意图；重放禁止再次调用图像工具",
+    action: "run-dispatch",
+  },
+  "run complete": {
+    operands: 1,
+    flags: ["project", "file", "metadata", "expected-revision", "request-id"],
+    description: "回接真实图片，局部合成仅修改批准区域",
+  },
+  "run unknown": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "保存未知请求，不自动重发",
+    action: "run-unknown",
+  },
+  "run authorize": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "用本工作区的新授权接手恢复运行，保留 unknown",
+    action: "run-authorize",
+  },
+  "run review": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "保存实际候选的视觉检查",
+    action: "run-review",
+  },
+  "run accept": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "保存用户对实际候选 hash 的接受",
+    action: "run-accept",
+  },
+  "run status": {
+    operands: 1,
+    flags: ["project"],
+    description: "查看原生执行进度与版本",
+    action: "show",
+    readonly: true,
+  },
+  "run timeline": {
+    operands: 1,
+    flags: ["project"],
+    description: "读取原生执行、回接、检查与交付时间线",
+    action: "timeline",
+    readonly: true,
+  },
+  "run deliver": {
+    operands: 1,
+    flags: ["project", "to", "expected-revision", "request-id"],
+    description: "交付已接受图片，恢复不覆盖不同内容",
+  },
+  "context export": {
+    operands: 0,
+    flags: ["project", "to"],
+    description: "打包原生项目、关系、回执、brief 与素材",
+  },
+  "context inspect": {
+    operands: 0,
+    flags: ["file"],
+    description: "只读校验 ZIP 版本、完整性、关系与图像尺寸",
+  },
+  "context import": {
+    operands: 0,
+    flags: ["file", "ygl-entry", "dry-run", "strategy", "name"],
+    description: "预检或事务恢复原生 ZIP；同包幂等、历史权限失效",
+  },
+  "context search": {
+    operands: 0,
+    flags: ["query"],
+    description: "跨登记工作区检索原生 design/spec",
+  },
+  "context cite": {
+    operands: 0,
+    flags: ["project", "task", "file", "request-id"],
+    description: "保全指定版本/hash 的引用正文及用途",
+  },
+  "context build": {
+    operands: 0,
+    flags: ["project", "query", "method"],
+    description: "组装当前目标、历史引用、分析方法和专业建议依据",
+  },
+  "legacy inspect": {
+    operands: 0,
+    flags: ["project", "file"],
+    description: "只读检查旧账本或旧 v1 ZIP 的映射与真实进度",
+  },
+  "legacy migrate": {
+    operands: 0,
+    flags: ["project", "file", "to", "ygl-entry", "dry-run"],
+    description: "显式只读源、预检并迁入新建的隔离 ygl 目标",
+  },
+  "taste view": {
+    operands: 0,
+    flags: ["project", "method"],
+    description: "标签频率、二次分类、共现和评分交叉视图",
+  },
+  "index check": {
+    operands: 0,
+    flags: ["project"],
+    description: "核验原生项目关系、文件与图索引",
+  },
+  "index rebuild": {
+    operands: 0,
+    flags: ["project"],
+    description: "调用原生 node index/validate，不执行图像操作",
+  },
+  doctor: { operands: 0, flags: [], description: "原生 ygl doctor" },
+  capabilities: {
+    operands: 0,
+    flags: [],
+    description: "核对原生扩展与宿主优先边界",
+  },
+};
+export async function readJSON(file: string): Promise<any> {
+  const stat = await fs.lstat(file);
+  requireThat(
+    stat.isFile() && !stat.isSymbolicLink() && stat.size <= 1024 * 1024,
+    "INPUT_FILE",
+    "JSON 文件无效或超过 1 MiB",
+  );
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    throw new RetouchError("INPUT_JSON", "输入不是有效 JSON", 2);
+  }
 }
-export async function execute(args: string[]): Promise<{ command: string; result: Result }> {
+export async function execute(
+  args: string[],
+): Promise<{ command: string; result: any }> {
   let parsed;
-  try { parsed = parseArgs({ args, options, strict: true, allowPositionals: true, tokens: true }); }
-  catch { throw new RetouchError('CLI_ARGUMENTS', '参数无效或存在未知选项；请运行 --help', 2); }
-  const seen = new Set<string>();
-  for (const token of parsed.tokens) if (token.kind === 'option') { requireThat(!seen.has(token.name), 'DUPLICATE_OPTION', '选项不得重复：' + token.name); seen.add(token.name); }
-  if (parsed.values.help || parsed.positionals[0] === 'help' || args.length === 0) return { command: 'help', result: { result_status: 'help', data: { product: '电商修图流', version: '0.2.0', commands, usage: 'node src/cli.ts <command> --workspace <dir> --json', image_execution: 'host-first; independent API fallback is explicit and not configured' } } };
-  if (parsed.values.version) return { command: 'version', result: { result_status: 'version', data: { version: '0.2.0' } } };
-  const words = [...parsed.positionals];
-  const command = ['next', 'deliver', 'doctor', 'capabilities'].includes(words[0]) ? words.shift()! : words.splice(0, 2).join(' ');
-  const spec = commands[command]; requireThat(spec, 'UNKNOWN_COMMAND', '未知命令；请运行 --help');
-  requireThat(words.length === spec.operands, 'CLI_OPERANDS', '命令参数数量不匹配：' + command);
-  for (const flag of seen) requireThat(['workspace', 'json', ...spec.flags].includes(flag), 'UNSUPPORTED_OPTION', command + ' 不支持 --' + flag);
-  const needed = (name: keyof typeof options): string => {
-    const value = parsed.values[name]; requireThat(typeof value === 'string' && value.length > 0, 'MISSING_OPTION', '缺少 --' + name); return value;
+  try {
+    parsed = parseArgs({
+      args,
+      options,
+      strict: true,
+      allowPositionals: true,
+      tokens: true,
+    });
+  } catch {
+    throw new RetouchError("CLI_ARGUMENTS", "参数无效，请运行 --help", 2);
+  }
+  const flags = parsed.values,
+    seen = new Set<string>();
+  for (const token of parsed.tokens)
+    if (token.kind === "option") {
+      requireThat(
+        !seen.has(token.name),
+        "DUPLICATE_OPTION",
+        "重复选项：" + token.name,
+      );
+      seen.add(token.name);
+    }
+  const answer = (command: string, data: any, status = "ok") => ({
+    command,
+    result: {
+      result_status: status,
+      data,
+      ...(data?.replayed ? { replayed: true } : {}),
+    },
+  });
+  if (flags.help || !args.length || parsed.positionals[0] === "help")
+    return answer("help", {
+      product: "电商修图流",
+      version,
+      commands,
+      usage: "retouch <command> --workspace <dir> --json",
+      storage: "ygl native; no retouch ledger",
+    });
+  if (flags.version) return answer("version", { version });
+  const words = [...parsed.positionals],
+    command = ["doctor", "capabilities", "next"].includes(words[0])
+      ? words.shift()!
+      : words.splice(0, 2).join(" "),
+    spec = commands[command];
+  requireThat(spec, "UNKNOWN_COMMAND", "未知命令");
+  requireThat(
+    words.length === spec.operands,
+    "CLI_OPERANDS",
+    "命令位置参数数量不匹配",
+  );
+  for (const flag of seen)
+    requireThat(
+      ["workspace", "json", ...spec.flags].includes(flag),
+      "UNSUPPORTED_OPTION",
+      command + " 不支持 --" + flag,
+    );
+  const required = (name: keyof typeof options) => {
+    const value = flags[name];
+    requireThat(
+      typeof value === "string" && value.trim(),
+      "MISSING_OPTION",
+      "缺少 --" + name,
+    );
+    return value;
   };
   const revision = () => {
-    const value = needed('expected-revision'); requireThat(/^\d+$/.test(value) && Number.isSafeInteger(Number(value)), 'INVALID_REVISION', 'expected-revision 必须为非负整数'); return Number(value);
+    const n = Number(required("expected-revision"));
+    requireThat(
+      Number.isSafeInteger(n) && n >= 0,
+      "REVISION",
+      "版本须为非负整数",
+    );
+    return n;
   };
-  const request = () => needed('request-id');
-  const operand = words[0];
-  if (command === 'workspace init') {
-    requireThat(!parsed.values.workspace, 'CLI_ARGUMENTS', 'workspace init 用位置参数指定目录');
-    return { command, result: await initializeWorkspace(operand, parsed.values['ygl-entry'] ?? process.env.RETOUCH_YGL_ENTRY ?? '', parsed.values.demo ?? false) };
+  const request = () => required("request-id"),
+    body = async () => (flags.file ? await readJSON(flags.file) : {});
+  if (command === "workspace init")
+    return answer(
+      command,
+      {
+        workspace: (
+          await NativeClient.initialize(words[0], required("ygl-entry"))
+        ).root,
+      },
+      "initialized",
+    );
+  if (command === "context inspect") {
+    const i = await inspectProject(required("file"));
+    return answer(
+      command,
+      { manifest: i.manifest, project_id: i.snapshot.project_id },
+      "verified",
+    );
   }
-  if (command === 'context inspect') return { command, result: inspectedResult(await inspectContext(needed('file'))) };
-  if (command === 'context import') {
-    const strategy = parsed.values.strategy as ImportStrategy | undefined;
-    return { command, result: parsed.values['dry-run'] ? await previewImport(needed('file'), needed('workspace'), strategy) : await importContext(needed('file'), needed('workspace'), { strategy, yglEntry: parsed.values['ygl-entry'] }) };
-  }
-  const store = await Store.open(needed('workspace'));
-  try {
-    const service = new Service(store);
-    const projects = new Projects(store);
-    let result: Result;
-    switch (command) {
-      case 'task new': {
-        const binding = parsed.values.file ? object(await readJSON(needed('file')), ['project_id', 'goal_id', 'goal_version', 'expected_output', 'done_when', 'dependencies', 'kind'], '任务归属') as unknown as TaskBinding : { project_id: needed('project'), goal_id: needed('goal'), goal_version: Number(needed('goal-version')), expected_output: needed('expected-output'), done_when: needed('done-when'), kind: (parsed.values.kind ?? 'image') as 'image' | 'design' };
-        result = await service.createTask(parsed.values.image, needed('brief'), parsed.values.title, binding); break;
-      }
-      case 'task show': result = service.taskView(operand); break;
-      case 'task list': result = { result_status: 'listed', data: { tasks: store.list('task') } }; break;
-      case 'asset add': result = await service.addAsset(needed('file')); break;
-      case 'asset show': result = await service.inspect(operand); break;
-      case 'requirement set': result = service.setRequirements(operand, await readJSON(needed('file')), revision()); break;
-      case 'plan submit': result = await service.submitPlan(operand, await readJSON(needed('file')), revision()); break;
-      case 'plan show': result = { result_status: 'planned', data: { plan: service.currentPlan(operand) } }; break;
-      case 'plan check': case 'ygl check': result = await service.checkPlan(operand); break;
-      case 'approval grant': result = service.grant(operand, await readJSON(needed('file')), revision()); break;
-      case 'run start': result = await service.start(operand, revision()); break;
-      case 'run advance': result = await service.advance(operand, revision(), request()); break;
-      case 'run dispatch': result = service.dispatch(operand, revision(), request()); break;
-      case 'run complete': result = await service.complete(operand, await readJSON(needed('file')), revision(), request()); break;
-      case 'run review': result = await service.reviewStep(operand, await readJSON(needed('file')), revision(), request()); break;
-      case 'run status': case 'review show': result = service.status(operand); break;
-      case 'run timeline': result = service.timeline(operand); break;
-      case 'run resume': case 'run reconcile': result = await service.resume(operand, revision()); break;
-      case 'run cancel': result = service.cancel(operand, revision()); break;
-      case 'review accept': case 'review reject': {
-        const value = await readJSON(needed('file'));
-        requireThat((value as Record<string, unknown>)?.verdict === command.split(' ')[1], 'INVALID_VERDICT', '命令与回执中的终验结论不一致');
-        result = await service.finalReview(operand, value, revision(), request()); break;
-      }
-      case 'deliver': result = await service.deliver(operand, needed('to'), revision(), request()); break;
-      case 'next': result = service.next(operand); break;
-      case 'ygl sync': result = await service.synchronize(operand); break;
-      case 'doctor': result = await service.doctor(); break;
-      case 'capabilities': result = { result_status: 'declared', data: { primary: 'host', host_tool_availability: 'must_be_verified_by_current_host', mode: store.config.mode, offline: store.config.mode === 'demo', fallback: { type: 'independent_image_api', implemented: false, configured: false, automatic: false } } }; break;
-      case 'project new': result = projects.create(await readJSON(needed('file'))); break;
-      case 'project list': result = { result_status: 'listed', data: { projects: store.list('project') } }; break;
-      case 'project brief': result = projects.brief(operand); break;
-      case 'project bind-task': result = projects.bind(operand, await readJSON(needed('file')), revision()); break;
-      case 'project note': result = projects.note(needed('project'), await readJSON(needed('file')), service.requestId(request())); break;
-      case 'goal new': case 'goal revise': result = projects.goal(needed('project'), await readJSON(needed('file')), revision(), command === 'goal revise' ? operand : undefined); break;
-      case 'task context-review': case 'task close': {
-        const receipt = object(await readJSON(needed('file')), ['confirmation'], '任务确认');
-        result = command === 'task close' ? projects.closeTask(operand, String(receipt.confirmation ?? ''), revision()) : projects.reviewContext(operand, String(receipt.confirmation ?? ''), revision()); break;
-      }
-      case 'artifact register': result = await projects.artifact(operand, needed('file'), await readJSON(needed('metadata')), service.requestId(request())); break;
-      case 'artifact show': result = projects.artifactView(operand); break;
-      case 'artifact list': result = { result_status: 'listed', data: { artifacts: store.list<import('./domain/context.ts').Artifact>('artifact').filter(r => r.data.project_id === needed('project')) } }; break;
-      case 'artifact review': result = await projects.reviewArtifact(operand, await readJSON(needed('file')), revision(), service.requestId(request())); break;
-      case 'design register': result = projects.design(operand, await readJSON(needed('file')), revision()); break;
-      case 'execution record': result = projects.execution(operand, await readJSON(needed('file')), service.requestId(request())); break;
-      case 'execution reconcile': result = projects.reconcile(operand, await readJSON(needed('file')), revision(), service.requestId(request())); break;
-      case 'execution show': result = { result_status: 'recorded', data: { execution: store.get('execution', operand) } }; break;
-      case 'index check': result = await projects.check(parsed.values.project); break;
-      case 'index rebuild': result = await rebuildContextIndex(store, needed('project')); break;
-      case 'context export': result = await exportContext(store, needed('project'), needed('to')); break;
-      case 'run authorize': result = service.authorizeRun(operand, revision()); break;
-      default: throw new RetouchError('UNKNOWN_COMMAND', '未知命令', 2);
+  if (command === "context import")
+    return answer(
+      command,
+      await importProject(required("file"), required("workspace"), {
+        dryRun: flags["dry-run"],
+        entry: flags["ygl-entry"],
+        strategy: flags.strategy,
+        name: flags.name,
+      }),
+    );
+  if (command.startsWith("legacy ")) {
+    const legacy = await import("./native/legacy.ts"),
+      source = await legacy.readLegacy(
+        flags.workspace,
+        flags.project,
+        flags.file,
+      );
+    if (command === "legacy inspect") {
+      const mapped = legacy.legacySnapshot(source);
+      return answer(command, {
+        project_id: mapped.snapshot.project_id,
+        mapping: mapped.mapping,
+        progress: mapped.progress,
+        source_access: "read-only",
+      });
     }
-    return { command, result };
-  } finally { store.close(); }
+    return answer(
+      command,
+      await legacy.migrateLegacy(
+        source,
+        required("to"),
+        flags["dry-run"] ? "" : required("ygl-entry"),
+        flags["dry-run"] ?? false,
+      ),
+    );
+  }
+  const client = await NativeClient.open(required("workspace"));
+  if (command === "doctor")
+    return answer(command, await client.raw(["doctor"]));
+  if (command === "capabilities")
+    return answer(command, {
+      ...(await client.call("capabilities", {})),
+      image_execution: "host-first",
+      api_fallback: "explicit opt-in; not automatically invoked",
+    });
+  if (command === "workspace register") {
+    const config = await body();
+    return answer(
+      command,
+      await registerWorkspace(
+        client,
+        words[0],
+        config.authority_for ?? [],
+        request(),
+      ),
+    );
+  }
+  if (command === "project brief")
+    return answer(command, await client.call("brief", { project: words[0] }));
+  if (command === "project timeline")
+    return answer(
+      command,
+      await client.call("timeline", { project: words[0] }),
+    );
+  if (command === "context search")
+    return answer(command, await searchContext(client, required("query")));
+  const project = flags.project
+    ? (await client.call("brief", { project: flags.project })).project.id
+    : undefined;
+  const needProject = () => {
+    requireThat(project, "MISSING_PROJECT", "缺少 --project");
+    return project as string;
+  };
+  const method = async () => {
+    if (!flags.method) return undefined;
+    const a = await client.call("show", {
+      project: needProject(),
+      id: flags.method,
+    });
+    requireThat(
+      a.kind === "methodology",
+      "METHOD",
+      "method 必须指向原生 methodology 工件",
+    );
+    return {
+      ...JSON.parse(a.content),
+      native_artifact_id: a.id,
+      native_version: a.version,
+      content_hash: (await import("./native/plugin/commands.mjs")).digest(
+        a.content,
+      ),
+    };
+  };
+  if (command === "taste view")
+    return answer(command, await taste(client, await method()));
+  if (command === "context build")
+    return answer(command, {
+      current: await client.call("brief", { project: needProject() }),
+      citations: await citationStatus(client, needProject()),
+      references: await searchContext(client, required("query")),
+      analysis: await taste(client, await method()),
+      agent_task:
+        "阅读来源的范围、保持项和用户结论，提出适合当前商品的专业建议；解释与用户事实分开；不得从频率推断满意度或因果。",
+    });
+  if (command === "context cite")
+    return answer(
+      command,
+      await cite(client, needProject(), flags.task, await body(), request()),
+    );
+  if (command === "context export")
+    return answer(
+      command,
+      await exportProject(client, needProject(), required("to")),
+      "exported",
+    );
+  if (command === "asset add")
+    return answer(
+      command,
+      await registerMedia(
+        client,
+        needProject(),
+        required("task"),
+        required("file"),
+        { role: required("role"), parents: flags.parent ? [flags.parent] : [] },
+        request(),
+      ),
+    );
+  if (command === "asset resize")
+    return answer(
+      command,
+      await resizeMedia(
+        client,
+        needProject(),
+        words[0],
+        Number(required("width")),
+        Number(required("height")),
+        request(),
+      ),
+    );
+  if (command === "artifact deliver")
+    return answer(
+      command,
+      await deliverArtifact(
+        client,
+        needProject(),
+        words[0],
+        required("to"),
+        request(),
+      ),
+    );
+  if (command === "run complete")
+    return answer(
+      command,
+      await completeRun(
+        client,
+        needProject(),
+        words[0],
+        required("file"),
+        revision(),
+        request(),
+        flags.metadata ? await readJSON(flags.metadata) : null,
+      ),
+    );
+  if (command === "run deliver")
+    return answer(
+      command,
+      await deliverRun(
+        client,
+        needProject(),
+        words[0],
+        required("to"),
+        revision(),
+        request(),
+      ),
+    );
+  if (command === "index check" || command === "index rebuild") {
+    const s = await client.call("snapshot", { project: needProject() });
+    (await import("./native/plugin/commands.mjs")).validateSnapshot(s);
+    for (const a of s.tables.artifacts.filter((a: any) => a.kind === "media"))
+      await objectBytes(client.root, JSON.parse(a.meta));
+    const results = [];
+    for (const tree of s.tables.trees) {
+      if (command === "index rebuild")
+        await client.raw(["node", "index", "--tree", tree.name]);
+      const result = await client.raw([
+        "node",
+        "validate",
+        "--tree",
+        tree.name,
+      ]);
+      requireThat(
+        Array.isArray(result.issues) && !result.issues.length,
+        "NATIVE_INDEX",
+        "原生图索引验证失败",
+        1,
+      );
+      results.push(result);
+    }
+    return answer(
+      command,
+      {
+        project_id: s.project_id,
+        fingerprint: s.fingerprint,
+        results,
+        image_execution: "NOT_RUN",
+      },
+      "verified",
+    );
+  }
+  if (
+    ["design register", "spec register", "method register"].includes(command)
+  ) {
+    const input = await body(),
+      kind = command.startsWith("design")
+        ? "design"
+        : command.startsWith("method")
+          ? "methodology"
+          : "spec";
+    return answer(
+      command,
+      await client.call(
+        "document",
+        {
+          ...input,
+          kind,
+          project: needProject(),
+          ...(flags.task ? { task: flags.task } : {}),
+          ...(kind === "methodology"
+            ? {
+                content: JSON.stringify(input.method),
+                role: "agent-interpretation",
+              }
+            : {}),
+        },
+        request(),
+      ),
+    );
+  }
+  requireThat(spec.action, "COMMAND", "未接入原生路由");
+  const input = spec.readonly ? {} : await body();
+  requireThat(
+    input && typeof input === "object" && !Array.isArray(input),
+    "INPUT",
+    "请求须为对象",
+  );
+  const payload: any = { ...input, ...(project ? { project } : {}) };
+  if (words[0])
+    payload[
+      [
+        "requirements",
+        "plan",
+        "grant",
+        "run-start",
+        "task-close",
+        "task-context-review",
+      ].includes(spec.action)
+        ? "task"
+        : "id"
+    ] = words[0];
+  if (spec.flags.includes("expected-revision"))
+    payload.expected_revision = revision();
+  const data = await client.call(
+    spec.action,
+    payload,
+    spec.readonly ? undefined : request(),
+  );
+  if (spec.action === "run-dispatch" && data.replayed)
+    data.allow_execute = false;
+  return answer(command, data);
 }
 export async function main(args: string[]) {
-  const json = args.includes('--json');
   try {
     const { command, result } = await execute(args);
-    const envelope = { schema_version: 'retouch.cli/v1', ok: true, command: command.replaceAll(' ', '.'), ...result };
-    if (json) process.stdout.write(JSON.stringify(envelope) + '\n');
-    else {
-      process.stdout.write('电商修图流 · ' + result.result_status + '\n');
-      if (command === 'help') for (const [name, spec] of Object.entries(commands)) process.stdout.write(name.padEnd(20) + spec.description + '\n');
-      else process.stdout.write(JSON.stringify(result.data, null, 2) + '\n');
-      for (const action of result.next_actions ?? []) process.stdout.write('下一步：' + action.type + ' — ' + action.reason + '\n');
-      for (const warning of result.warnings ?? []) process.stderr.write(warning + '\n');
-    }
+    const output = {
+      schema_version: "retouch.cli/v2",
+      ok: true,
+      command: command.replaceAll(" ", "."),
+      ...result,
+    };
+    process.stdout.write(
+      JSON.stringify(
+        output,
+        args.includes("--json") ? undefined : null,
+        args.includes("--json") ? undefined : 2,
+      ) + "\n",
+    );
   } catch (error) {
-    const failure = error instanceof RetouchError ? error : new RetouchError('RUNTIME_ERROR', (error as Error).message, 1);
-    const output = { schema_version: 'retouch.cli/v1', ok: false, result_status: 'error', error: { code: failure.code, message: failure.message, retryable: false, effect_status: failure.effectStatus, details: failure.details } };
-    if (json) process.stdout.write(JSON.stringify(output) + '\n'); else process.stderr.write(failure.code + ': ' + failure.message + '\n');
-    process.exitCode = failure.exitCode;
+    const nativeError = error as Error & { code?: string; rc?: number };
+    const e =
+      error instanceof RetouchError
+        ? error
+        : nativeError.code && nativeError.rc
+          ? new RetouchError(
+              nativeError.code,
+              nativeError.message,
+              nativeError.rc,
+            )
+          : new RetouchError("RUNTIME_ERROR", (error as Error).message, 1);
+    const output = {
+      schema_version: "retouch.cli/v2",
+      ok: false,
+      result_status: "error",
+      error: {
+        code: e.code,
+        message: e.message,
+        effect_status: e.effectStatus,
+      },
+    };
+    process.stdout.write(JSON.stringify(output) + "\n");
+    process.exitCode = e.exitCode;
   }
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main(process.argv.slice(2));
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  await main(process.argv.slice(2));
