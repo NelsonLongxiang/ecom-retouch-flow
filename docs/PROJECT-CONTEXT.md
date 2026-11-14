@@ -2,6 +2,8 @@
 
 0.3.0 使用 ygl 原生项目 ID。接手先 `project brief <id> --workspace <目录>`，查看目标、任务 progress、实际图片尺寸、设计工件、unknown 和下一步。`design_document_only` 不表示图片已生成，`waiting_for_review`／`waiting_for_acceptance` 不表示用户已接受。
 
+0.4.0 沿用上述身份，并在包含 API fallback 配置／请求的 ZIP 中增加 retouch-api-fallback/v1 必要能力。执行配置只携带变量名与指纹，不携带实际 base/key。received 表示 API 原始结果已保全、本地处理尚未完成；run recover-api 只读取原生事实和文件，不再次访问图像服务。克隆后的本地恢复回执按新执行身份隔离；外部请求身份及来源仍保留。
+
 ```text
 node src/cli.ts context export --workspace <源> --project <id> --to <新包.zip> --json
 node src/cli.ts context inspect --file <包.zip> --json

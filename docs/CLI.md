@@ -1,4 +1,4 @@
-# CLI 0.3.0 · ygl 原生封装
+# CLI 0.4.0 · ygl 原生封装
 
 入口 `node src/cli.ts`，完整命令以 `--help --json` 为准。stdout 为单一 `retouch.cli/v2` JSON 信封；rc0 表示命令已处理，rc1 为运行／冲突错误，rc2 为参数错误。图像质量、用户接受和项目完结另查实际事实。
 
@@ -101,3 +101,5 @@ run complete 可加 `--metadata <回执.json>`，字段为 `tool` 和去敏后�
 `context search --query <关键词>` 搜索全部登记工作区的原生 design/spec。`context cite --project <目标> --task <可选任务> --file <引用.json> --request-id <key>` 保存 workspace_id/project_id/artifact_id/version/content_hash/purpose/conditions，正文由实际来源读取并保全，不信任调用方粘贴替代。引用保持精确版本，context build 报告 stale/unavailable/conflict。
 
 ZIP、旧版迁移和恢复示例见 [项目上下文](PROJECT-CONTEXT.md)。`index check/rebuild --project <id>` 核对文件和原生图，不调用模型。`doctor` 输出原生健康检查，各检查结论须单独阅读。
+
+显式 API fallback 使用 executor register/check、run execute-api、run recover-api、run api-result 和 run api-reconcile。配置、费用／外发确认、请求次数限制及尺寸恢复示例见 [API fallback](API-FALLBACK.md)。

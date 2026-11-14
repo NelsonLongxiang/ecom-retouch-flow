@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { apiProfile, apiPrompt } from "./api-contract.mjs";
 
 export const SCHEMA = "retouch.native/v1";
 export const stable = (value) =>
@@ -420,6 +421,7 @@ async function brief(mgr, p) {
                 design_document_only: "design.review",
                 accepted: "artifact.deliver",
                 delivered: "task.close",
+                received: "run recover-api",
                 needs_review: "task.context-review",
               }[t.progress] ?? "task",
             id: t.id,
@@ -496,6 +498,7 @@ export async function run(env, action, rest, args) {
           storage: "native-projects-artifacts-nodes-relations-events",
           custom_tables: [],
           transactions: true,
+          api_fallback: "explicit-images-edits-v1",
         };
       if (action === "workspace-info")
         return json(
@@ -952,16 +955,7 @@ export async function run(env, action, rest, args) {
             "REQUIREMENTS",
             "需求组 ID 不得重复",
           );
-          const unknown = await mgr.query(
-            "SELECT id FROM artifacts WHERE project_id=? AND kind='execution' AND json_extract(meta,'$.task_id')=? AND json_extract(meta,'$.status') IN ('unknown','dispatched')",
-            [p.id, a.id],
-          );
-          check(
-            !unknown.length,
-            "UNKNOWN_PENDING",
-            "存在未知执行，先对账，再修改需求",
-            1,
-          );
+          await noUnknown(mgr, p, a.id);
           meta.retouch.requirements = b.groups;
           meta.retouch.plan_id = null;
           meta.retouch.active_run = null;
@@ -1029,13 +1023,15 @@ async function currentTask(mgr, p, taskId) {
 async function noUnknown(mgr, p, taskId) {
   const ex = await one(
     mgr,
-    "SELECT id FROM artifacts WHERE project_id=? AND kind='execution' AND json_extract(meta,'$.task_id')=? AND json_extract(meta,'$.status') IN ('unknown','dispatched')",
+    "SELECT id,meta FROM artifacts WHERE project_id=? AND kind='execution' AND json_extract(meta,'$.task_id')=? AND json_extract(meta,'$.status') IN ('unknown','dispatched','received')",
     [p.id, taskId],
   );
   check(
     !ex,
-    "UNKNOWN_PENDING",
-    "存在未对账执行：" + ex?.id + "，不能发起新请求",
+    ex && json(ex.meta).status === "received"
+      ? "RESULT_PENDING"
+      : "UNKNOWN_PENDING",
+    "存在待对账或待本地恢复的执行：" + ex?.id + "，不能发起新请求",
     1,
   );
 }
@@ -1079,6 +1075,25 @@ async function updateExecution(mgr, a, meta, expected) {
   return { ...a, meta: stable(meta) };
 }
 async function workflow({ mgr, api, p, node, b, action }) {
+  if (action === "executor-register") {
+    const config = apiProfile(b.profile);
+    text(b.title, "执行配置名称");
+    check(
+      /^[a-f0-9]{64}$/.test(b.endpoint_fingerprint),
+      "API_BINDING",
+      "执行配置必须绑定当前 endpoint 指纹",
+    );
+    const a = await append(
+      mgr,
+      p,
+      "executor-profile",
+      b.title,
+      { profile: config, endpoint_fingerprint: b.endpoint_fingerprint },
+      { schema: SCHEMA, role: "explicit-api-fallback" },
+    );
+    await relation(mgr, "node", node.id, "artifact", a.id, "configured-by");
+    return { profile: a };
+  }
   if (action === "document") {
     check(
       ["spec", "design", "citation", "methodology", "note"].includes(b.kind),
@@ -1222,6 +1237,12 @@ async function workflow({ mgr, api, p, node, b, action }) {
       parents: b.parents ?? [],
       operation: b.operation ?? "",
       confirmation: "unreviewed",
+      ...(b.provider_receipt
+        ? {
+            provider_receipt: b.provider_receipt,
+            api_operation: b.api_operation,
+          }
+        : {}),
     };
     for (const id of meta.parents) await media(mgr, p, id);
     const a = await append(
@@ -1397,6 +1418,12 @@ async function workflow({ mgr, api, p, node, b, action }) {
   if (action === "execution-reconcile") {
     const { a, meta } = await execution(mgr, p, b.id);
     check(
+      meta.role !== "workflow-run",
+      "WORKFLOW_RECONCILIATION",
+      "工作流结果请通过 run complete、run api-result 或 run api-reconcile 回接，不能覆盖前序输出",
+      1,
+    );
+    check(
       ["unknown", "received", "failed"].includes(b.status),
       "EXECUTION_STATUS",
       "对账状态无效",
@@ -1448,6 +1475,16 @@ async function workflow({ mgr, api, p, node, b, action }) {
         "依赖须指向前序步骤且 ID 不重复",
       );
       ids.add(step.id);
+      check(
+        step.references === undefined ||
+          (Array.isArray(step.references) && step.references.length <= 15),
+        "REFERENCES",
+        "每步最多 15 张职责明确的参考图",
+      );
+      for (const reference of step.references ?? []) {
+        await media(mgr, p, reference.media_id);
+        text(reference.purpose, "参考图职责");
+      }
       if (step.region) {
         const r = step.region,
           coords = step.coordinate_system ?? {
@@ -1487,6 +1524,22 @@ async function workflow({ mgr, api, p, node, b, action }) {
       executor: "host",
       steps,
     };
+    if (b.fallback) {
+      const profile = await artifact(
+          mgr,
+          b.fallback.profile_id,
+          p,
+          "executor-profile",
+        ),
+        config = json(profile.content);
+      apiProfile(config.profile);
+      body.fallback = {
+        profile_id: profile.id,
+        profile_version: profile.version,
+        profile_hash: digest(config),
+        endpoint_fingerprint: config.endpoint_fingerprint,
+      };
+    }
     const plan = await append(mgr, p, "spec", "Workflow " + a.id, body, {
       schema: SCHEMA,
       role: "workflow-plan",
@@ -1532,6 +1585,15 @@ async function workflow({ mgr, api, p, node, b, action }) {
     meta.retouch.plan_id = plan.id;
     const updated = await updateTask(mgr, a, meta, b.expected_revision);
     await relation(mgr, "task", a.id, "artifact", plan.id, "specified-by");
+    if (body.fallback)
+      await relation(
+        mgr,
+        "artifact",
+        plan.id,
+        "artifact",
+        body.fallback.profile_id,
+        "uses-executor",
+      );
     return {
       plan,
       plan_hash: digest(body),
@@ -1541,6 +1603,16 @@ async function workflow({ mgr, api, p, node, b, action }) {
         issuer: "host-human",
         confirmation: "",
         expires_at: null,
+        ...(body.fallback
+          ? {
+              api_fallback: {
+                ...body.fallback,
+                max_requests: steps.length,
+                cost_confirmation: "",
+                upload_confirmation: "",
+              },
+            }
+          : {}),
       },
       task: updated,
     };
@@ -1548,6 +1620,26 @@ async function workflow({ mgr, api, p, node, b, action }) {
   if (action === "grant") {
     const { a, meta } = await currentTask(mgr, p, b.task);
     const plan = await artifact(mgr, meta.retouch.plan_id, p, "spec");
+    const fallback = json(plan.content).fallback;
+    if (b.api_fallback) {
+      check(
+        fallback &&
+          b.api_fallback.profile_id === fallback.profile_id &&
+          b.api_fallback.profile_hash === fallback.profile_hash &&
+          b.api_fallback.endpoint_fingerprint === fallback.endpoint_fingerprint,
+        "API_APPROVAL",
+        "API 授权须匹配已冻结的执行配置",
+      );
+      check(
+        Number.isSafeInteger(b.api_fallback.max_requests) &&
+          b.api_fallback.max_requests > 0 &&
+          b.api_fallback.max_requests <= json(plan.content).steps.length,
+        "API_BUDGET",
+        "API 授权须给出不超过计划步数的最大请求次数",
+      );
+      text(b.api_fallback.cost_confirmation, "费用确认原文");
+      text(b.api_fallback.upload_confirmation, "素材外发确认原文");
+    }
     check(
       b.plan_id === plan.id && b.plan_hash === digest(json(plan.content)),
       "PLAN_BINDING",
@@ -1582,6 +1674,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
         expires_at: b.expires_at,
         workspace_id: identity.id,
         max_runs: 1,
+        ...(b.api_fallback ? { api_fallback: b.api_fallback } : {}),
       },
     );
     await relation(mgr, "task", a.id, "artifact", grant.id, "authorized-by");
@@ -1679,7 +1772,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
     const { a, meta } = await execution(mgr, p, b.id);
     check(meta.role === "workflow-run", "RUN", "此记录不是工作流运行");
     const plan = json(a.content);
-    if (action === "run-dispatch") {
+    if (action === "run-dispatch" || action === "run-api-dispatch") {
       check(
         meta.status === "prepared",
         "RUN_STATE",
@@ -1702,13 +1795,178 @@ async function workflow({ mgr, api, p, node, b, action }) {
           )
         ).value,
       );
-      await localGrant(
+      const granted = await localGrant(
         mgr,
         await artifact(mgr, meta.grant_id, p, "authorization"),
         identity,
       );
       const step = plan.steps[meta.step];
       check(step, "RUN_FINISHED", "已无待执行步骤", 1);
+      const input = await media(mgr, p, meta.input_id);
+      const references = [];
+      for (const ref of step.references ?? [])
+        references.push({
+          purpose: ref.purpose,
+          artifact: await media(mgr, p, ref.media_id),
+        });
+      if (action === "run-api-dispatch") {
+        const terms = granted.api_fallback,
+          fallback = plan.fallback;
+        check(
+          terms &&
+            fallback &&
+            terms.profile_id === fallback.profile_id &&
+            b.profile_id === fallback.profile_id,
+          "API_APPROVAL_REQUIRED",
+          "需要本工作区对该 API fallback 的明确授权",
+          1,
+        );
+        const profile = await artifact(
+            mgr,
+            fallback.profile_id,
+            p,
+            "executor-profile",
+          ),
+          config = json(profile.content),
+          definition = apiProfile(config.profile);
+        check(
+          digest(config) === fallback.profile_hash &&
+            terms.profile_hash === fallback.profile_hash &&
+            config.endpoint_fingerprint === b.endpoint_fingerprint &&
+            terms.endpoint_fingerprint === b.endpoint_fingerprint,
+          "API_BINDING",
+          "API endpoint 或执行配置已变化，不能沿用旧授权",
+          1,
+        );
+        const attempts = meta.api_attempts ?? [];
+        check(
+          attempts.filter((x) => x.grant_id === meta.grant_id).length <
+            terms.max_requests,
+          "API_BUDGET",
+          "API 请求次数已达到授权上限",
+          1,
+        );
+        text(b.operation_key, "操作请求键");
+        check(
+          !attempts.some((x) => x.operation_key === b.operation_key),
+          "REQUEST_CONFLICT",
+          "API 操作请求键已经使用",
+          1,
+        );
+        const uploads = b.uploads;
+        check(
+          uploads &&
+            Array.isArray(uploads.reference_ids) &&
+            uploads.reference_ids.length === references.length,
+          "API_UPLOADS",
+          "API 传输素材不完整",
+        );
+        const uploadInput = await media(mgr, p, uploads.input_id),
+          referenceUploads = [];
+        check(
+          json(uploadInput.meta).parents.includes(input.id),
+          "API_UPLOAD_BINDING",
+          "传输输入未绑定当前步骤输入",
+        );
+        for (let i = 0; i < references.length; i++) {
+          const r = await media(mgr, p, uploads.reference_ids[i]);
+          check(
+            json(r.meta).parents.includes(references[i].artifact.id),
+            "API_UPLOAD_BINDING",
+            "参考传输素材来源不符",
+          );
+          referenceUploads.push(r);
+        }
+        const mask = uploads.mask_id
+          ? await media(mgr, p, uploads.mask_id)
+          : null;
+        check(
+          !!mask === !!step.region &&
+            (!mask || json(mask.meta).parents.includes(input.id)),
+          "API_MASK",
+          "局部步骤须使用绑定当前输入的明确 mask",
+        );
+        const descriptor = {
+          profile_id: profile.id,
+          profile_hash: fallback.profile_hash,
+          endpoint_fingerprint: config.endpoint_fingerprint,
+          model: definition.model,
+          size: definition.size,
+          quality: definition.quality,
+          prompt: apiPrompt(
+            step,
+            plan.requirements,
+            json((await artifact(mgr, plan.goal_id, p, "spec")).content)
+              .preserve,
+          ),
+          uploads: {
+            input: json(uploadInput.meta).sha256,
+            references: referenceUploads.map((r) => json(r.meta).sha256),
+            mask: mask ? json(mask.meta).sha256 : null,
+          },
+        };
+        check(
+          b.request_digest === digest(descriptor),
+          "API_REQUEST_BINDING",
+          "API 请求与原生冻结上下文不匹配",
+        );
+        const promptArtifact = await append(
+          mgr,
+          p,
+          "prompt",
+          "API request " + b.operation_key,
+          descriptor.prompt,
+          {
+            schema: SCHEMA,
+            task_id: meta.task_id,
+            goal_id: meta.goal_id,
+            plan_id: meta.plan_id,
+            profile_id: profile.id,
+            operation_key: b.operation_key,
+            role: "compiled-api-request",
+          },
+        );
+        await relation(
+          mgr,
+          "artifact",
+          a.id,
+          "artifact",
+          promptArtifact.id,
+          "uses",
+        );
+        await relation(
+          mgr,
+          "artifact",
+          promptArtifact.id,
+          "artifact",
+          meta.plan_id,
+          "derived-from",
+        );
+        const intent = {
+          operation_key: b.operation_key,
+          expected_revision: b.expected_revision,
+          grant_id: meta.grant_id,
+          profile_id: profile.id,
+          prompt_id: promptArtifact.id,
+          profile_hash: fallback.profile_hash,
+          endpoint_fingerprint: config.endpoint_fingerprint,
+          request_digest: b.request_digest,
+          uploads,
+          step: meta.step,
+          model: definition.model,
+          status: "dispatched",
+          at: timestamp(),
+        };
+        meta.api_intent = intent;
+        meta.api_attempts = [...attempts, intent];
+        meta.api_response = null;
+        for (const id of [
+          uploads.input_id,
+          ...uploads.reference_ids,
+          ...(uploads.mask_id ? [uploads.mask_id] : []),
+        ])
+          await relation(mgr, "artifact", a.id, "artifact", id, "uses");
+      }
       const currentNode = await stepNode(
         mgr,
         node.tree_id,
@@ -1734,8 +1992,16 @@ async function workflow({ mgr, api, p, node, b, action }) {
           1,
         );
       }
+      if (action === "run-dispatch") {
+        meta.api_intent = null;
+        meta.api_response = null;
+      }
       meta.status = "dispatched";
-      meta.dispatch = { step: step.id, at: timestamp() };
+      meta.dispatch = {
+        step: step.id,
+        at: timestamp(),
+        channel: action === "run-api-dispatch" ? "api-fallback" : "host",
+      };
       const updated = await updateExecution(mgr, a, meta, b.expected_revision);
       await relation(
         mgr,
@@ -1745,7 +2011,6 @@ async function workflow({ mgr, api, p, node, b, action }) {
         a.id,
         "executed-by",
       );
-      const input = await media(mgr, p, meta.input_id);
       if (step.region)
         check(
           json(input.meta).width === step.coordinate_system.width &&
@@ -1763,6 +2028,11 @@ async function workflow({ mgr, api, p, node, b, action }) {
           plan_id: meta.plan_id,
           step,
           input: { id: input.id, ...json(input.meta) },
+          references: references.map((r) => ({
+            id: r.artifact.id,
+            purpose: r.purpose,
+            ...json(r.artifact.meta),
+          })),
           requirements: plan.requirements,
           preserve: json((await artifact(mgr, plan.goal_id, p, "spec")).content)
             .preserve,
@@ -1771,7 +2041,59 @@ async function workflow({ mgr, api, p, node, b, action }) {
         },
       };
     }
-    if (action === "run-authorize") {
+    if (action === "run-api-received") {
+      check(
+        ["dispatched", "unknown"].includes(meta.status) &&
+          meta.dispatch?.channel === "api-fallback" &&
+          meta.api_intent?.operation_key === b.operation_key,
+        "API_RESULT_STATE",
+        "没有匹配的 API 待回接请求",
+        1,
+      );
+      const raw = await media(mgr, p, b.raw_output),
+        rm = json(raw.meta);
+      check(
+        rm.task_id === meta.task_id && rm.parents.includes(meta.input_id),
+        "API_RESULT_BINDING",
+        "API 原始结果未绑定当前任务输入",
+      );
+      meta.status = "received";
+      meta.api_response = {
+        operation_key: b.operation_key,
+        raw_output: raw.id,
+        receipt: b.receipt ?? null,
+      };
+      meta.raw_output = raw.id;
+      meta.api_attempts = meta.api_attempts.map((x) =>
+        x.operation_key === b.operation_key ? { ...x, status: "received" } : x,
+      );
+      await relation(mgr, "artifact", a.id, "artifact", raw.id, "produced");
+    } else if (action === "run-api-outcome") {
+      check(
+        ["dispatched", "unknown"].includes(meta.status) &&
+          meta.api_intent?.operation_key === b.operation_key &&
+          !meta.api_response,
+        "API_RESULT_STATE",
+        "API 请求状态不允许改写该结果",
+        1,
+      );
+      check(
+        ["failed", "unknown"].includes(b.status),
+        "API_OUTCOME",
+        "API 结果须明确失败或未知",
+      );
+      if (b.observed?.code === "API_PROVIDER_RECONCILED") {
+        text(b.observed.statement, "API 对账事实");
+        text(b.observed.source, "API 对账来源");
+      }
+      meta.status = b.status;
+      meta.api_outcome = b.observed;
+      meta.api_attempts = meta.api_attempts.map((x) =>
+        x.operation_key === b.operation_key
+          ? { ...x, status: b.status, observed: b.observed }
+          : x,
+      );
+    } else if (action === "run-authorize") {
       const identity = json(
         (
           await one(
@@ -1809,13 +2131,29 @@ async function workflow({ mgr, api, p, node, b, action }) {
       );
     } else if (action === "run-complete") {
       check(
-        ["dispatched", "unknown"].includes(meta.status),
+        ["dispatched", "unknown", "received"].includes(meta.status),
         "RUN_STATE",
         "此运行没有待回接请求",
         1,
       );
+      if (meta.dispatch?.channel === "api-fallback")
+        check(
+          meta.api_response && meta.api_response.raw_output === b.raw_output,
+          "API_RECEIPT_REQUIRED",
+          "API 输出须先保全原生接收回执",
+          1,
+        );
       const output = await media(mgr, p, b.output),
         om = json(output.meta);
+      if (b.processed_output) {
+        const processed = await media(mgr, p, b.processed_output);
+        check(
+          json(processed.meta).parents.includes(b.raw_output) &&
+            om.parents.includes(processed.id),
+          "POSTPROCESS_BINDING",
+          "后处理与候选必须保留原始结果的完整派生",
+        );
+      }
       check(
         om.task_id === meta.task_id && om.parents.includes(meta.input_id),
         "OUTPUT_BINDING",
@@ -2250,7 +2588,72 @@ export function validateSnapshot(s) {
   );
   for (const a of t.artifacts) {
     const m = json(a.meta);
-    for (const key of ["task_id", "goal_id", "plan_id", "grant_id", "media_id"])
+    const apiRef = (id) =>
+      t.artifacts.find((x) => x.id === id && x.kind === "executor-profile");
+    if (a.kind === "executor-profile") {
+      const config = json(a.content);
+      apiProfile(config.profile);
+      check(
+        /^[a-f0-9]{64}$/.test(config.endpoint_fingerprint),
+        "SNAPSHOT_API_PROFILE",
+        "API 执行配置缺少 endpoint 绑定",
+      );
+    }
+    if (a.kind === "spec" && m.role === "workflow-plan") {
+      const body = json(a.content);
+      if (body.fallback) {
+        const profile = apiRef(body.fallback.profile_id);
+        check(
+          profile &&
+            digest(json(profile.content)) === body.fallback.profile_hash,
+          "SNAPSHOT_API_REFERENCE",
+          "计划未绑定有效原生 API 配置",
+        );
+      }
+      for (const step of body.steps ?? [])
+        for (const reference of step.references ?? [])
+          check(
+            artifacts.has(reference.media_id),
+            "SNAPSHOT_REFERENCES",
+            "步骤参考图不存在",
+          );
+    }
+    if (m.api_fallback)
+      check(
+        apiRef(m.api_fallback.profile_id),
+        "SNAPSHOT_API_REFERENCE",
+        "授权引用的 API 配置不存在",
+      );
+    if (m.api_intent) {
+      const intent = m.api_intent;
+      check(
+        apiRef(intent.profile_id) &&
+          artifacts.has(intent.prompt_id) &&
+          artifacts.has(intent.grant_id) &&
+          [
+            intent.uploads.input_id,
+            ...intent.uploads.reference_ids,
+            ...(intent.uploads.mask_id ? [intent.uploads.mask_id] : []),
+          ].every((id) => artifacts.has(id)),
+        "SNAPSHOT_API_REFERENCE",
+        "API 执行或传输素材引用不完整",
+      );
+    }
+    if (m.api_response)
+      check(
+        artifacts.has(m.api_response.raw_output) &&
+          m.api_response.operation_key === m.api_intent?.operation_key,
+        "SNAPSHOT_API_RESULT",
+        "API 原始结果或操作身份不匹配",
+      );
+    for (const key of [
+      "task_id",
+      "goal_id",
+      "plan_id",
+      "grant_id",
+      "media_id",
+      "profile_id",
+    ])
       if (m[key])
         check(
           artifacts.has(m[key]),
@@ -2394,6 +2797,10 @@ async function restore(mgr, api, b) {
               "source_version",
               "source_hash",
               "source_fingerprint",
+              "operation_key",
+              "api_operation",
+              "provider_request_id",
+              "external_request",
             ].includes(k)
               ? structuredClone(x)
               : remap(x),

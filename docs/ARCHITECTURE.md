@@ -1,4 +1,4 @@
-# 原生封装架构（0.3.0）
+# 原生封装架构（0.4.0）
 
 正常写入路径是 `src/cli.ts → src/native/client.ts → ygl CLI retouch-native → 本项目用户插件 → ygl 原生事务服务`。原生插件位于 `src/native/plugin/`，固定验收 ygl 0.125.0；通过该发行包的 `getOrm/runTx/logEvent` 写入既有实体。没有自建表、第二个数据库、outbox 或独立索引；完整测试比较初始化前后的实际 SQLite 表清单。
 
@@ -15,8 +15,11 @@
 | 工作区身份及登记 | 原生 meta 的工具配置键，不存跨项目业务副本 |
 | 引用与分析方法 | citation/methodology 工件；引用正文可携带 |
 | 全局视图 | 显式查询登记 home 的原生数据，内存派生、随用随算 |
+| 显式 API fallback | executor-profile、prompt、media、authorization、execution 与原生事件；请求次数按本地授权核对 |
 
 原生版本和关系是依据。retouch 不拦截普通 ygl 命令，也不能保证同一 OS 身份下的恶意 Agent 无法伪造业务记录。事务回执和授权校验负责正确编排，不是独立安全沙箱。
+
+API 传输位于 `src/native/api.ts`，共用无凭证协议校验在插件 api-contract 中。完整编译提示词、传输 PNG／mask、唯一调用意图先落原生事实，随后才发送一次。凭证仅在传输进程读取；原生子进程不继承密钥变量。原图与去敏提供商回执先随 media 保全，再登记接收状态；状态写入失败时可从原生媒体事实恢复，不重新出图。本地恢复回执按执行 ID 隔离，clone 不会混用源项目的已执行回执。参见 [API 协议](API-FALLBACK.md)。
 
 `workspace.json` 只保存本机 ygl 入口、发行包指纹与工作区绑定；业务事实均在 `<workspace>/ygl/ygl-trees.db`。`objects/sha256/` 存文件字节，`tmp/native-requests/` 是调用请求文件，调用后移除；删除临时文件不影响接手。独立 home 不继承全局 project/tree/PG 或凭证配置。
 

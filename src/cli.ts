@@ -5,6 +5,13 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { NativeClient } from "./native/client.ts";
 import {
+  registerExecutor,
+  checkExecutor,
+  executeApi,
+  recoverApi,
+  reconcileApiResult,
+} from "./native/api.ts";
+import {
   registerMedia,
   resizeMedia,
   completeRun,
@@ -26,7 +33,7 @@ import {
 } from "./native/context.ts";
 import { requireThat, RetouchError } from "./domain/model.ts";
 
-const version = "0.3.0";
+const version = "0.4.0";
 const options = {
   workspace: { type: "string" },
   json: { type: "boolean" },
@@ -49,6 +56,8 @@ const options = {
   strategy: { type: "string" },
   name: { type: "string" },
   method: { type: "string" },
+  profile: { type: "string" },
+  "fit-input": { type: "boolean" },
 } as const;
 type Command = {
   operands: number;
@@ -361,6 +370,36 @@ const commands: Record<string, Command> = {
     flags: [],
     description: "核对原生扩展与宿主优先边界",
   },
+  "executor register": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "登记显式 API fallback 配置，仅保存环境变量名与 endpoint 指纹",
+  },
+  "executor check": {
+    operands: 1,
+    flags: ["project"],
+    description: "核对执行配置与凭证是否设置，不发出网络请求",
+  },
+  "run execute-api": {
+    operands: 1,
+    flags: ["project", "profile", "expected-revision", "request-id"],
+    description: "显式选择已批准的 API fallback，原生意图落定后只提交一次",
+  },
+  "run recover-api": {
+    operands: 1,
+    flags: ["project", "fit-input"],
+    description: "从已保全 API 结果恢复本地合成与回执，不访问图像 API",
+  },
+  "run api-result": {
+    operands: 1,
+    flags: ["project", "file", "metadata", "expected-revision"],
+    description: "回接原 API 请求的实际迟到结果，不重新发送请求",
+  },
+  "run api-reconcile": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "根据提供商实际依据确认失败或继续保留未知，不发送请求",
+  },
 };
 export async function readJSON(file: string): Promise<any> {
   const stat = await fs.lstat(file);
@@ -516,7 +555,11 @@ export async function execute(
     return answer(command, {
       ...(await client.call("capabilities", {})),
       image_execution: "host-first",
-      api_fallback: "explicit opt-in; not automatically invoked",
+      api_fallback: {
+        implemented: true,
+        automatic: false,
+        protocol: "openai-images-edits/v1",
+      },
     });
   if (command === "workspace register") {
     const config = await body();
@@ -546,6 +589,66 @@ export async function execute(
     requireThat(project, "MISSING_PROJECT", "缺少 --project");
     return project as string;
   };
+  if (command === "executor register")
+    return answer(
+      command,
+      await registerExecutor(client, needProject(), await body(), request()),
+    );
+  if (command === "executor check")
+    return answer(
+      command,
+      await checkExecutor(client, needProject(), words[0]),
+    );
+  if (command === "run execute-api")
+    return answer(
+      command,
+      await executeApi(client, needProject(), words[0], {
+        profileId: required("profile"),
+        revision: revision(),
+        requestId: request(),
+      }),
+    );
+  if (command === "run recover-api")
+    return answer(
+      command,
+      await recoverApi(client, needProject(), words[0], {
+        fitInput: flags["fit-input"],
+      }),
+    );
+  if (command === "run api-result")
+    return answer(
+      command,
+      await reconcileApiResult(
+        client,
+        needProject(),
+        words[0],
+        required("file"),
+        await readJSON(required("metadata")),
+        revision(),
+      ),
+    );
+  if (command === "run api-reconcile") {
+    const record = await body();
+    return answer(
+      command,
+      await client.call(
+        "run-api-outcome",
+        {
+          project: needProject(),
+          id: words[0],
+          operation_key: record.operation_key,
+          status: record.status,
+          observed: {
+            code: "API_PROVIDER_RECONCILED",
+            statement: record.statement,
+            source: record.source,
+          },
+          expected_revision: revision(),
+        },
+        request(),
+      ),
+    );
+  }
   const method = async () => {
     if (!flags.method) return undefined;
     const a = await client.call("show", {

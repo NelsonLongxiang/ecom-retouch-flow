@@ -1,17 +1,20 @@
 # 验证与复现
 
-0.3.0 的正常入口是 ygl 原生封装。验证使用 Windows、Node 24.12.0、ygl-trees 0.125.0 和项目 tmp 中的隔离 home；不访问默认业务库、不部署共享插件、不调用模型或收费 API。
+0.4.0 的正常入口仍为 ygl 原生封装，新增显式 API fallback。验证使用 Windows、Node 24.12.0、ygl-trees 0.125.0、项目 tmp 中的隔离 home 和本机 HTTP 模拟服务；不访问默认业务库、不部署共享插件、不调用真实模型或收费 API。
 
 ```text
 npm ci
 npm run typecheck
 node scripts/test.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite api --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
-默认测试为 `native-*.test.ts`，当前包含 6 个测试场景（含完整流程中的多项断言）。历史 0.2.0 的 42 项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
+默认测试为 `native-*.test.ts`，包含原生基础 6 个场景及 API 的 3 个场景（每个完整流程内包含多项断言）。历史 0.2.0 的 42 项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
 
-2026-11-15 本轮结果：类型检查 PASS；原生 6/6 场景 PASS、零跳过；历史 42/42 项 PASS、零跳过；原生两步演示 PASS。真实 AI 图像／收费 API 为 NOT_RUN。
+0.3.0 历史基线为原生 6/6、历史 42/42 与两步演示通过。0.4.0 的当前结果以本轮 native-wrapper-tests.json 与 api-tests.json 的实际 verdict／源码指纹为准，不以旧报告代替。真实 AI 图像／收费 API 为 NOT_RUN。
+
+2026-11-15 本轮完整结果：9/9 场景 PASS，零跳过；类型检查 PASS。API 模拟服务共观察到 11 次明确的 POST、零次重定向跟随；重放、恢复、迟到回接和克隆恢复不增加 API 请求。历史 42 项基线未在本轮重新执行。
 
 | 原生验收范围 | 实际检查 |
 | --- | --- |
@@ -28,8 +31,11 @@ node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 | 动态上下文 | 登记范围、恢复副本去重、分歧／唯一权威、缺评分不填零、分类与反馈视图 |
 | 引用 | 真实 design/spec、精确版本/hash、本地正文、源更新 stale、工作区失联 unavailable |
 | 输入边界 | 标签、参数、凭证字段、畸形清单、跨项目和悬空关系；共用 ZIP 读取器的路径／链接／碰撞／大小限制另由历史回归覆盖 |
+| API fallback | 明确配置／授权、真实本机 multipart 图片与透明 mask、用途明确的参考图、每份授权的请求次数限制 |
+| API 故障 | 重放／并发单次提交，超时／重定向／URL 响应／大小限制保留未知，明确拒绝保留失败及去敏代码 |
+| API 恢复 | 原始尺寸保全、显式本地缩放、迟到结果幂等回接、原生接收回执故障、clone 回执隔离；均不再次请求图像 |
 
-最新完整报告在本地 `docs/verification/native-wrapper-tests.json`，不可变报告在 `docs/verification/runs/`；包括实际退出码、TAP 计数、源码 hash、架构标识和原生证据。完整 PASS 要求零失败、零取消、零跳过，并有原生 wrapper evidence PASS。`--unit-only` 会明确标记原生集成 NOT_RUN。
+最新完整报告在本地 `docs/verification/native-wrapper-tests.json`，API 定向报告为 api-tests.json，不可变报告在 `docs/verification/runs/`；包括实际退出码、TAP 计数、源码 hash、架构标识和原生证据。完整 PASS 要求零失败、零取消、零跳过，且 wrapper 和 API 本机模拟证据都 PASS；--suite api 不代替完整回归。`--unit-only` 明确标记原生集成 NOT_RUN。
 
 演示工具通过原生工作流处理两张本地夹具图片并交付 PNG/manifest，报告在 `offline-demo.json`。[演示对照图](../demo/offline-workflow.png) 展示原图、第一步及第二步实际结果，不能作为 AI 商品图效果或用户满意度证明。
 

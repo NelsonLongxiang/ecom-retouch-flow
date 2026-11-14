@@ -4,7 +4,7 @@
 
 - 产品名称：电商修图流（EcomRetouchFlow）；项目目录：`ecom-retouch-flow`；CLI：`retouch`（本地入口 `node src/cli.ts`）。
 - 用户在 2026-11-14 已确认开始 M1–M2 实现，并明确宿主 Codex／ChatGPT 的图像能力优先，独立图像 API 作为 fallback。已授权本项目包配置、源码、测试、项目内依赖安装与隔离验证；不重复请求路线图确认。
-- 当前正式入口为 `README.md`、`SKILL.md` 和 `docs/ROADMAP.md`。0.3.0 正常 CLI 已切换到 ygl 原生封装；业务操作遵循 SKILL.md，当前架构见 `docs/ARCHITECTURE.md`。初始研究材料保留在本地 `docs/ai-native-cli/`，不作为公共运行依赖。
+- 当前正式入口为 `README.md`、`SKILL.md` 和 `docs/ROADMAP.md`。0.4.0 延续 ygl 原生封装并增加显式 API fallback；业务操作遵循 SKILL.md，当前架构见 `docs/ARCHITECTURE.md`。初始研究材料保留在本地 `docs/ai-native-cli/`，不作为公共运行依赖。
 - 用户已明确授权通过 gh 创建本项目公开仓库、初始化 Git 并提交推送，归档不参与跟踪。软件发版、部署与实际 API 调用仍分别核对实际授权。
 - 用户已要求解决 Issue #1 的强制项目／目标／任务／产物关联和 Issue #2 的完整 ZIP 上下文交换；开发实现、隔离验证、文档与仓库同步在当前任务范围内。不要将开发需求当作迁移真实业务数据或调用图像服务的授权。
 - 最新架构裁决：产品底层是 ygl-trees CLI 的高级封装，禁止独立实现项目／任务账本、关系库、全局索引引擎或把 ygl 降为投影。0.2.0 独立账本仅作只读迁移来源和历史测试夹具；规范以 `docs/YGL-WRAPPER-MIGRATION.md` 与 `docs/ADR-004-dynamic-context.md` 为准，不因旧文档或历史测试通过继续扩展该分工。
@@ -22,6 +22,7 @@
 
 - 复用 Agent 宿主和 ygl 原生 CLI。领域状态、任务、工件、关系和索引由 ygl 承载；retouch 负责电商 profile、命令编排、图像处理与上下文交换。原生缺口必须明确并通过原生 CLI／插件扩展解决，不能偷偷增加独立 ledger/catalog 或用 db sql 建影子业务系统。正常运行不得写旧独立账本，历史读取只用于明确的迁移／复核路径。
 - 默认图像执行方式为 host：CLI 生成绑定输入的任务单，宿主用其实际可用的图像工具执行，再回接真实结果文件。离线提供商仅用于演示／测试；API fallback 需要明确选择与配置，不能因宿主工具缺失自动转为收费 API。
+- API fallback 通过 `src/native/api.ts` 和原生插件的执行配置／意图／回执工作，不自建提供商账本。仅从显式环境变量读取 base/key，不记录凭证；默认不跟随重定向、不下载 URL 响应、不自动重试。已保存响应的恢复只做本地处理。模拟 API 验收与真实付费 API／商品质量分别报告；定向检查用 `scripts/test.mjs --suite api`。
 - 需求文字非空且未停用即参与。保持用户原文与 Agent 解释的区别；后续步骤绑定明确的前序结果及坐标系。
 - ygl unlock、rc0、提供商受理、收到图片、检查通过、人工接受和任务交付分别判断。质量未知或未运行不计通过。
 - 相同请求键重放已有事实；外部请求结果未知时先对账。补写 ygl 失败不能触发重新生成图片。

@@ -69,6 +69,6 @@ test("标签校验、ZIP 原生 schema 与 CLI 无效输入拒绝", async () => 
   ])
     await assert.rejects(execute(args));
   const help = await execute(["--help"]);
-  assert.equal(help.result.data.version, "0.3.0");
+  assert.equal(help.result.data.version, "0.4.0");
   assert.match(help.result.data.storage, /no retouch ledger/);
 });

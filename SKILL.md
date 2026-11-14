@@ -5,7 +5,7 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 
 # 电商修图流
 
-使用 `node src/cli.ts` 管理业务，先读 `--help --json`；参数与 JSON 示例按需读 [CLI](docs/CLI.md)。当前正常入口为 0.3.0 ygl 原生封装，业务数据不写独立 ledger。不要根据旧 0.2.0 文档调用 `run advance`、`ygl sync` 或旧版迁移写入。
+使用 `node src/cli.ts` 管理业务，先读 `--help --json`；参数与 JSON 示例按需读 [CLI](docs/CLI.md)。当前正常入口为 0.4.0 ygl 原生封装，业务数据不写独立 ledger。不要根据旧 0.2.0 文档调用 `run advance`、`ygl sync` 或旧版迁移写入。
 
 已有项目先运行 `project brief <id> --workspace <业务目录>`。以实际目标版本、任务进度、候选、来源角色和未知请求为依据接手，不根据当前源码目录猜项目。缺工作区时使用明确空目录和已安装的 ygl 0.125.0 入口初始化；不能将此授权扩大为共享插件部署或真实数据迁移。
 
@@ -16,6 +16,10 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 5. 用 `run complete --file <真实结果>` 回接图片，CLI 保留原始输出并在局部步骤合成批准区域。查看实际候选后 `run review`，PASS 才推进；UNKNOWN 待补证据，FAIL 保留失败候选。全部步骤通过后，`run accept` 保存用户对确切 hash 的接受，`run deliver` 交付图片与清单。
 
 所有变更使用稳定 request-id，更新使用当前 revision。任务 revision 在原生 `meta.retouch.revision`，运行 revision 在 `meta.revision`，项目 profile 使用原生工件 version。重放只读原回执，不能换请求键绕过未知状态。收到请求结果不明时先读 `run status`／`project brief`，保全 unknown，再回接或登记真实对账结果，不为补记录重新出图。
+
+宿主工具缺失不会自动改用 API。用户明确选择 API fallback 时，按 [API 协议与示例](docs/API-FALLBACK.md) 登记 executor-profile，在计划中绑定该配置，再保存真实的素材外发、费用和最大请求次数确认。密钥仅通过环境注入，不贴到聊天、文件、命令行或回执；模型必须明确，不自动替换。`executor check` 只检查配置状态，不能据此宣称凭证或模型服务已验证。
+
+执行 API 使用 `run execute-api`，相同请求键重放不会再次提交。超时／断开保留 unknown，先对账；提供商原请求的迟到图片用 `run api-result`，有真实失败依据时用 `run api-reconcile`。已收到响应但本地合成中断时用 `run recover-api`，无需凭证、不访问图像服务。尺寸不符时可显式 `--fit-input` 产生独立缩放产物，再合成批准区域；保留模型原始尺寸和全部来源，不能为此重新出图。收到图片仍须视觉检查和用户接受。
 
 已有外部图像通过 `asset add`、`execution record/reconcile` 登记。原图 → 模型原生结果 → 后处理分别绑定实际文件、尺寸与派生来源；已有候选先检查，用 `artifact review/deliver` 交付，不重新请求生成。设计／套图文档与已生成商品图分别统计。标签和 AI 补绘不能作为商品结构或规格的确认依据。
 

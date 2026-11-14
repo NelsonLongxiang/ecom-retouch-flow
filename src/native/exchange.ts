@@ -46,7 +46,7 @@ export async function exportProject(
   }
   const manifest = {
     schema: "retouch.context/v2",
-    producer: { name: "ecom-retouch-flow", version: "0.3.0" },
+    producer: { name: "ecom-retouch-flow", version: "0.4.0" },
     exported_at: new Date().toISOString(),
     snapshot_id: snapshot.fingerprint,
     scope: "full_project",
@@ -55,6 +55,11 @@ export async function exportProject(
       "ygl-native-project/v1",
       "media-sha256",
       "historical-permission-isolation",
+      ...(snapshot.tables.artifacts.some(
+        (a: any) => a.kind === "executor-profile",
+      )
+        ? ["retouch-api-fallback/v1"]
+        : []),
     ],
     project_id: snapshot.project_id,
     fingerprint: snapshot.fingerprint,
@@ -121,6 +126,7 @@ export async function inspectProject(file: string) {
           "ygl-native-project/v1",
           "media-sha256",
           "historical-permission-isolation",
+          "retouch-api-fallback/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",
@@ -149,6 +155,14 @@ export async function inspectProject(file: string) {
     );
   }
   validateSnapshot(snapshot);
+  requireThat(
+    !snapshot.tables.artifacts.some(
+      (a: any) => a.kind === "executor-profile",
+    ) || manifest.requires.includes("retouch-api-fallback/v1"),
+    "ZIP_CAPABILITY",
+    "API fallback 上下文必须声明所需能力，旧工具不能静默丢失语义",
+    1,
+  );
   assertNoCredentials(snapshot);
   requireThat(
     manifest.producer?.name === "ecom-retouch-flow" &&

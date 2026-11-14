@@ -140,6 +140,8 @@ export async function completeRun(
   revision: number,
   requestId: string,
   receipt: any = null,
+  registeredRaw: any = null,
+  processedOutput: any = null,
 ) {
   requireThat(
     receipt === null ||
@@ -183,20 +185,46 @@ export async function completeRun(
     rm = JSON.parse(run.meta),
     plan = JSON.parse(run.content),
     step = plan.steps[rm.step];
-  const { bytes, metadata } = await readImage(file);
-  const raw = await registerBytes(
-    client,
-    project,
-    rm.task_id,
-    bytes,
-    {
-      role: "model-output",
-      parents: [rm.input_id],
-      operation: "host image tool; actual raw bytes",
-    },
-    requestId + ":raw",
-  );
+  const { bytes, metadata: rawMetadata } = await readImage(file);
+  if (registeredRaw)
+    requireThat(
+      registeredRaw.project_id === project &&
+        JSON.parse(registeredRaw.meta).sha256 === bytesHash(bytes),
+      "API_RESULT_BINDING",
+      "已登记的原始输出与实际文件不符",
+      1,
+    );
+  const raw = registeredRaw
+    ? { artifact: registeredRaw }
+    : await registerBytes(
+        client,
+        project,
+        rm.task_id,
+        bytes,
+        {
+          role: "model-output",
+          parents: [rm.input_id],
+          operation: "host image tool; actual raw bytes",
+        },
+        requestId + ":raw",
+      );
   let output = raw.artifact;
+  let generatedBytes: Buffer = bytes,
+    metadata = rawMetadata;
+  if (processedOutput) {
+    const m = JSON.parse(processedOutput.meta);
+    requireThat(
+      processedOutput.project_id === project &&
+        m.task_id === rm.task_id &&
+        m.parents.includes(raw.artifact.id),
+      "POSTPROCESS_BINDING",
+      "后处理图须派生于该原始 API 结果",
+      1,
+    );
+    generatedBytes = await objectBytes(client.root, m);
+    metadata = await Images.metadata(generatedBytes);
+    output = processedOutput;
+  }
   if (step?.region) {
     const input = await client.call("show", { project, id: rm.input_id }),
       im = JSON.parse(input.meta),
@@ -211,7 +239,7 @@ export async function completeRun(
       .ensureAlpha()
       .raw()
       .toBuffer();
-    const generated = await sharp(bytes)
+    const generated = await sharp(generatedBytes)
       .toColourspace("srgb")
       .ensureAlpha()
       .raw()
@@ -233,7 +261,7 @@ export async function completeRun(
         composed,
         {
           role: "candidate",
-          parents: [rm.input_id, raw.artifact.id],
+          parents: [rm.input_id, processedOutput?.id ?? raw.artifact.id],
           operation: "approved-region composite",
         },
         requestId + ":composite",
@@ -247,6 +275,7 @@ export async function completeRun(
       id: runId,
       output: output.id,
       raw_output: raw.artifact.id,
+      ...(processedOutput ? { processed_output: processedOutput.id } : {}),
       expected_revision: revision,
       receipt,
     },
