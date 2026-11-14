@@ -39,4 +39,4 @@ offline 仅在 demo 工作区使用，用于可重复验证图像承接和恢复
 | `src/adapters/images.ts` | 规范化、蒙版、合成与图像检查 |
 | `src/adapters/ygl.ts` | 版本身份、独立 home、冻结图与证据同步 |
 
-业务操作见 [SKILLS.md](../SKILLS.md)，协议见 [CLI v1](CLI.md) 与 [宿主执行](HOST-EXECUTOR.md)。初始探索、迁移清单及原插件归档属于本地历史材料，不是公共运行依赖。
+业务操作见 [SKILL.md](../SKILL.md)，协议见 [CLI v1](CLI.md) 与 [宿主执行](HOST-EXECUTOR.md)。初始探索、迁移清单及原插件归档属于本地历史材料，不是公共运行依赖。

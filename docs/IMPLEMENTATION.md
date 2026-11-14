@@ -27,7 +27,7 @@
 - [离线对照图](demo/offline-workflow.png)：仅用于展示步骤承接，不代表 AI 语义修图效果。
 - 本地历史报告在 `docs/verification/runs/` 保留，最新同名报告为当前索引。报告和项目 `tmp/` 下的隔离现场不参与 Git 跟踪，原浏览器临时配置未处理。
 
-复核入口：`npm run typecheck`、`node scripts/test.mjs --ygl-entry <已安装入口>`。本地历史基线审计工具不作为公开仓库测试依赖。使用说明见 [SKILLS.md](../SKILLS.md)、[CLI v1](CLI.md) 和 [宿主协议](HOST-EXECUTOR.md)。
+复核入口：`npm run typecheck`、`node scripts/test.mjs --ygl-entry <已安装入口>`。本地历史基线审计工具不作为公开仓库测试依赖。使用说明见 [SKILL.md](../SKILL.md)、[CLI v1](CLI.md) 和 [宿主协议](HOST-EXECUTOR.md)。
 
 ## 尚未验收
 

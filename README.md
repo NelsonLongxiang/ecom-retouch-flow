@@ -10,7 +10,7 @@
 
 已实现任务与需求组、冻结计划、独立 ygl 图与证据、请求去重、步骤租约、实际图片处理、宿主任务单、局部合成、检查、终验与可恢复交付。实际测试与复现命令见 [验证说明](docs/verification/README.md)。
 
-- [Agent 业务操作技能](SKILLS.md)
+- [Agent 业务操作技能](SKILL.md)
 - [CLI 使用与 JSON 契约](docs/CLI.md)
 - [宿主图像执行与回接](docs/HOST-EXECUTOR.md)
 - [当前路线图与实现边界](docs/ROADMAP.md)

@@ -4,12 +4,12 @@
 
 - 产品名称：电商修图流（EcomRetouchFlow）；项目目录：`ecom-retouch-flow`；CLI：`retouch`（本地入口 `node src/cli.ts`）。
 - 用户在 2026-11-14 已确认开始 M1–M2 实现，并明确宿主 Codex／ChatGPT 的图像能力优先，独立图像 API 作为 fallback。已授权本项目包配置、源码、测试、项目内依赖安装与隔离验证；不重复请求路线图确认。
-- 当前正式入口为 `README.md`、`SKILLS.md` 和 `docs/ROADMAP.md`。业务操作遵循 SKILLS.md，当前架构见 `docs/ARCHITECTURE.md`。初始研究材料保留在本地 `docs/ai-native-cli/`，不作为公共运行依赖。
+- 当前正式入口为 `README.md`、`SKILL.md` 和 `docs/ROADMAP.md`。业务操作遵循 SKILL.md，当前架构见 `docs/ARCHITECTURE.md`。初始研究材料保留在本地 `docs/ai-native-cli/`，不作为公共运行依赖。
 - 用户已明确授权通过 gh 创建本项目公开仓库、初始化 Git 并提交推送，归档不参与跟踪。软件发版、部署与实际 API 调用仍分别核对实际授权。
 
 ## 目录与历史保全
 
-- 根目录声明文件为 `README.md`、`AGENTS.md`、`SKILLS.md`、`LICENSE`、`.gitignore`、`.gitattributes`、`package.json`、`package-lock.json`、`tsconfig.json`。正式代码进入 `src/`，业务测试进入 `tests/`，可重复工具进入 `scripts/`，面向人的规范和证据进入 `docs/`。
+- 根目录声明文件为 `README.md`、`AGENTS.md`、`SKILL.md`、`LICENSE`、`.gitignore`、`.gitattributes`、`package.json`、`package-lock.json`、`tsconfig.json`。正式代码进入 `src/`，业务测试进入 `tests/`，可重复工具进入 `scripts/`，面向人的规范和证据进入 `docs/`。
 - `archive/browser-extension/1.5.0-20261114/` 是冻结的原项目快照，包含插件代码、依赖、测试、历史文档及当时设计；不编辑、不安装依赖、不直接运行会向归档写入的测试。恢复方法见其父目录 README。
 - 旧浏览器配置及此前被拒清理的临时对象保留在 `tmp/`，不清空、不换方式删除或移动。技能 junction 保留在 `.agents/`、`.dsh/`，不修改链接指向的技能副本。
 - 临时输出只放 `tmp/<任务名>/`，由 `.gitignore` 排除；运行态放工具自有工作区；凭证不写入文件、argv、日志、ygl payload 或导出包。
@@ -37,4 +37,4 @@
 
 ## Agent Atelier
 
-项目业务技能由根 `SKILLS.md` 和 `.agents/skills/ecom-retouch-flow/SKILL.md` 提供。当前环境另有 Agent Atelier 时，继续按其可见规范处理产物与开发决策；本机技能 junction 不随仓库发布，不要求其他使用者安装它。用户当前裁决优先，不从技能自动推导额外权限。
+项目业务技能由根 `SKILL.md` 和 `.agents/skills/ecom-retouch-flow/SKILL.md` 提供。当前环境另有 Agent Atelier 时，继续按其可见规范处理产物与开发决策；本机技能 junction 不随仓库发布，不要求其他使用者安装它。用户当前裁决优先，不从技能自动推导额外权限。

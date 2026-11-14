@@ -51,7 +51,7 @@ M2 的离线输出用于验证流程和图像契约，不代表 AI 已按语义�
 
 ## 当前交付与后续
 
-用户已确认实施。当前包配置、源码、测试与离线演示已落地；验证与复现见 [验证说明](verification/README.md)。当前能力、首版限制和调用顺序见 [CLI v1](CLI.md)、[SKILLS.md](../SKILLS.md) 与 [宿主协议](HOST-EXECUTOR.md)。
+用户已确认实施。当前包配置、源码、测试与离线演示已落地；验证与复现见 [验证说明](verification/README.md)。当前能力、首版限制和调用顺序见 [CLI v1](CLI.md)、[SKILL.md](../SKILL.md) 与 [宿主协议](HOST-EXECUTOR.md)。
 
 本轮未执行原生 AI 出图或独立 API 调用。后续优先在暴露图像工具的宿主完成一轮真实商品验收，再依据需要实现独立 API fallback；M4–M5 的完整业务可靠性和用户试点仍待后续验收。
 
