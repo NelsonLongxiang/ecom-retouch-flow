@@ -1,4 +1,6 @@
-# 当前实现架构 · 0.2.0
+# 实现现状与架构迁移 · 0.2.0
+
+用户最新裁决：产品是 ygl-trees CLI 的高级封装。下图与后文记录 0.2.0 历史现状，其中独立账本为权威、ygl 为投影的分工需要迁移。目标是由 ygl 原生 project/task/produce/rel/research/kb、节点和索引承载事实，retouch 只做领域编排与素材／上下文适配；禁止另建独立业务库或全局索引引擎。证据、缺口和步骤见 [迁移规范](YGL-WRAPPER-MIGRATION.md) 与 [ADR-004](ADR-004-dynamic-context.md)。
 
 ```mermaid
 flowchart LR

@@ -2,6 +2,8 @@
 
 0.2.0 在 Windows、Node 24.12.0 与 ygl-trees 0.125.0 下完成项目上下文与 ZIP 验证，包含原 M1–M2 回归：
 
+此表是独立账本历史实现的技术证据。用户最新要求底层为 ygl CLI 高级封装；迁移尚未完成，42 项通过不等于新架构符合。原生核心流程的 9 项探测断言通过，同时保留元数据更新、幂等、工作区清单和原生 ZIP／回执缺口，结论为 PASS_WITH_GAPS，见 [迁移规范](../YGL-WRAPPER-MIGRATION.md)。
+
 | 检查 | 实际结果 |
 |---|---|
 | TypeScript 类型检查 | PASS |
@@ -28,6 +30,7 @@ npm run typecheck
 node scripts/test.mjs --unit-only
 node scripts/test.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/probe-ygl-wrapper.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
 `--unit-only` 明确跳过原生集成，不能作为完整通过的依据。完整运行需要已验证的 ygl 发布包；所有测试使用项目 `tmp/` 下的隔离工作区，不依赖浏览器插件归档、初始研究目录或用户默认 ygl 数据库。

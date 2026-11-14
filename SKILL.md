@@ -5,6 +5,8 @@ description: 使用电商修图流 CLI 管理商品图的业务项目、局部�
 
 # 电商修图流 · Agent 操作技能
 
+当前处于架构迁移期。用户最新裁决要求本工具为 ygl-trees CLI 的高级封装；0.2.0 独立账本流程只用于历史理解和明确的隔离复核／迁移，不作为在真实工作区新建独立业务状态的授权。先读 [原生封装迁移规范](docs/YGL-WRAPPER-MIGRATION.md)；原生入口迁移完成前，不把下文旧接口或动态上下文拟议命令当成已符合新架构的业务执行入口。
+
 使用本文件，通过已有宿主的图像能力和本项目 CLI 完成电商商品图的分步修图、检查与交付。用户描述目标、审阅方案并终验；Agent 管理命令、版本、图片绑定与记录。普通项目开发遵循 [AGENTS.md](AGENTS.md)。
 
 项目级技能入口是 [.agents/skills/ecom-retouch-flow/SKILL.md](.agents/skills/ecom-retouch-flow/SKILL.md)，本文件是业务操作的详细说明。

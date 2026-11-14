@@ -1,6 +1,8 @@
 # 电商修图流 · EcomRetouchFlow
 
-以 CLI 为基础的 AI 原生电商商品图编辑与修图工作流。现有 Agent 负责理解需求与编排，`retouch` CLI 管理素材、计划、执行、检查、恢复和交付，ygl-trees 提供依赖求值与证据关联。
+以 **ygl-trees CLI 为底层的电商领域高级封装**。现有 Agent 理解需求，`retouch` 编排原生项目、任务、产物、关系、知识与索引能力，并处理素材、上下文、检查与交付。
+
+> 当前迁移状态：0.2.0 技术基线仍含独立 SQLite 业务账本，与用户最新明确的高级封装边界有偏差。后续必须收敛到 ygl 原生事实与索引，不能继续扩展独立引擎；迁移和复验路线见 [原生封装规范](docs/YGL-WRAPPER-MIGRATION.md)。新路线尚未完成，不把历史 42 项通过等同于架构符合。
 
 用户路径：提供原图和需求 → 审阅修改区域、顺序和费用 → 授权计划 → 分步处理与检查 → 查看实际对照图并验收 → 交付。
 
@@ -17,6 +19,8 @@
 - [当前路线图与实现边界](docs/ROADMAP.md)
 - [实现与验证说明](docs/IMPLEMENTATION.md)
 - [当前实现架构](docs/ARCHITECTURE.md)
+- [动态上下文工程路线提案](docs/DYNAMIC-CONTEXT.md)
+- [ygl 高级封装与历史实现迁移](docs/YGL-WRAPPER-MIGRATION.md)
 - [本地归档与公开范围](docs/ARCHIVE.md)
 
 ## 工作流原则
