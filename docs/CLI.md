@@ -23,7 +23,7 @@ node src/cli.ts project new --file <project.json> --request-id <key> --workspace
 {"title":"柜门高清重绘","scope":"修复柜门表面","preserve":["柜体结构不变","把手位置不变"],"done_when":"用户接受实际候选并交付","source":"用户原始需求"}
 ```
 
-同标题目标追加原生 spec 版本，旧任务不会静默切换。先对账 unknown，再 `task context-review <task-id>`，文件为 `{"goal":"<新目标 spec id>","statement":"实际复核依据"}`，绑定新目标并清除旧计划指针。
+已有目标通过 `artifact revise` 追加原生 spec 版本，同标题 `goal new` 会拒绝。旧任务不会静默切换。先对账 unknown，再 `task context-review <task-id>`，文件为 `{"goal":"<新目标 spec id>","statement":"实际复核依据"}`，绑定新目标并清除旧计划指针。
 
 `task new --project <id> --file <task.json> --request-id <key>`：
 
@@ -75,7 +75,30 @@ run complete 可加 `--metadata <回执.json>`，字段为 `tool` 和去敏后�
 
 已有外部候选用 `artifact review <id>`：文件含 sha256/verdict/observations/reviewer/source，用户接受再加 `accepted:true` 和 `source:user`。`artifact deliver <id> --to <目录> --request-id <key>` 直接交付已接受的真实文件。`task close <id>` 需 revision 与 `{"statement":"完成依据"}`；图像任务核对实际交付，设计任务核对设计工件。
 
-`design register`／`spec register` 文件字段为 title/content/role/source，可传 `--task`。role 使用 user-original、confirmed-fact、agent-interpretation、hypothesis 或 reference；不得把 AI 生成视为商品确认事实。
+## 原生文档与导出
+
+方案、目标和来源的正式入口是业务工作区中的原生 design/spec/citation。先读 `project brief <id>` 的 documents，按 artifact_id 调用 show 获取完整正文；documents 展示 design/spec 等系列当前版本，并保留所有 citation 固定快照。`observed-current` 只表示当前版本，不表示设计已确认、商品事实成立或任务完成。citation 的 `pinned-snapshot` 不声明来源仍为最新；同标题 citation 各自独立，history 只读取该精确快照，来源过期与否另由 context build 检查。
+
+`design register`／`spec register` 文件字段为 title/content/role/source，可传 `--task`，业务文档应绑定其实际任务。role 使用 user-original、confirmed-fact、agent-interpretation、hypothesis 或 reference；不得把 AI 生成视为商品确认事实。register 只用于新系列；同 project/kind/title 已存在时返回 DOCUMENT_EXISTS，不将另起 v2.md 或改标题作为旧工件的修订方式。
+
+```text
+node src/cli.ts artifact show <工件ID> --workspace <业务目录> --project <项目ID> --json
+node src/cli.ts artifact history <任一版本ID> --workspace <业务目录> --project <项目ID> --json
+node src/cli.ts artifact revise <当前ID> --workspace <业务目录> --project <项目ID> --file <修订.json> --expected-version <已读取version> --expected-hash <已读取content_hash> --request-id <稳定键> --json
+node src/cli.ts artifact export <确切版本ID> --workspace <业务目录> --project <项目ID> --to <明确的副本路径.md> --json
+```
+
+普通 design/spec 的修订文件：
+
+```json
+{"content":"完整新正文","reason":"本次修订原因","source":"实际新依据"}
+```
+
+默认保留角色、design_type、任务与目标绑定；可显式更新 role/confirmation_source/design_type，确认事实仍须真实依据。目标 spec 的 content 必须是完整目标对象（scope、preserve、done_when、source，以及实际原文／确认等字段），不能用 Markdown 替代结构化目标。同请求键重放原回执，不追加版本；旧 ID、旧 version 或错误 hash 返回 DOCUMENT_STALE。修改标题、类型、任务或任意 meta 返回 DOCUMENT_FIELDS。冻结工作流计划使用 plan submit；citation 保持精确快照，更新参考须重新阅读后 context cite。
+
+修订延续原生关系并保留旧正文，关联任务及其下游需要上下文复核；不会重建任务、生成图片或自动把任务切换到新目标。检索命中旧正文时会标为 superseded，并给出 current_id/current_version；历史引用仍保留原文并报告 stale。
+
+导出可读 Markdown 的元数据含 workspace/project/artifact 身份、版本、角色、来源、正文 hash 和导出时间。content_hash 为规范 JSON 字符串 `digest(content)`，与整份 Markdown 的文件 SHA-256 分开。JSON 工件以代码块呈现。导出不产生正式工件，不回写原生内容，不覆盖已有目标；副本目录不强制为 docs。用户展示和接手优先给原生 ID／版本；源码仓库 docs 仍用于产品规范，业务正文中的 v1/v2 标记仅作历史文字。
 
 项目维护命令：
 

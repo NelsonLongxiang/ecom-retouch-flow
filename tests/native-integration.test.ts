@@ -199,6 +199,18 @@ test(
       })
     ).plan;
     assert.equal(JSON.parse(plan.content).requirements.length, 1);
+    await assert.rejects(
+      call("document-revise", {
+        project: p,
+        id: plan.id,
+        expected_version: plan.version,
+        expected_hash: digest(plan.content),
+        content: "绕过冻结计划",
+        reason: "不应允许",
+        source: "fixture",
+      }),
+      { code: "DOCUMENT_KIND" },
+    );
     const grant = (
       await call("grant", {
         project: p,
@@ -487,13 +499,19 @@ test(
       }),
       { code: "UNKNOWN_PENDING" },
     );
-    await call("goal-new", {
+    await call("document-revise", {
       project: p,
-      title: "柜门高清重绘",
-      scope: "修改后的范围",
-      preserve: ["结构"],
-      done_when: "新验收",
+      id: goal.id,
+      expected_version: goal.version,
+      expected_hash: digest(goal.content),
+      reason: "修订目标范围",
       source: "user",
+      content: {
+        scope: "修改后的范围",
+        preserve: ["结构"],
+        done_when: "新验收",
+        source: "user",
+      },
     });
     assert.ok(
       (await client.call("brief", { project: p })).unknown_requests.some(

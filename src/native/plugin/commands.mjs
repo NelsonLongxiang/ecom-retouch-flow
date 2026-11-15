@@ -232,6 +232,155 @@ async function append(mgr, p, kind, title, content, meta = {}) {
   );
   return a;
 }
+const documentKinds = ["design", "spec", "citation", "methodology", "note"];
+export function documentSeries(a, artifacts) {
+  if (a.kind === "citation") return [a]; // Each citation is an immutable, independently pinned snapshot.
+  return [a, ...artifacts.filter((x) => x.id !== a.id)]
+    .filter(
+      (x) =>
+        x.project_id === a.project_id &&
+        x.kind === a.kind &&
+        x.title === a.title,
+    )
+    .sort((x, y) => x.version - y.version || x.id.localeCompare(y.id));
+}
+export function documentDescriptor(a, artifacts) {
+  const versions = documentSeries(a, artifacts),
+    current = versions.at(-1),
+    meta = json(a.meta);
+  return {
+    authority: "native-artifact",
+    project_id: a.project_id,
+    artifact_id: a.id,
+    kind: a.kind,
+    title: a.title,
+    version: a.version,
+    content_hash: digest(a.content),
+    format: a.format,
+    role: meta.role ?? "reference",
+    task_id: meta.task_id ?? null,
+    goal_id: meta.goal_id ?? null,
+    current_id: current.id,
+    current_version: current.version,
+    status:
+      a.kind === "citation"
+        ? "pinned-snapshot"
+        : a.id === current.id
+          ? "observed-current"
+          : "superseded",
+    previous_id:
+      meta.previous ??
+      versions[versions.findIndex((x) => x.id === a.id) - 1]?.id ??
+      null,
+    revision_reason: meta.revision_reason ?? null,
+    source: meta.source ?? null,
+    confirmation_source: meta.confirmation_source ?? null,
+    ...(meta.design_type ? { design_type: meta.design_type } : {}),
+    ...(meta.citation ? { citation: meta.citation } : {}),
+  };
+}
+async function documentRows(mgr, a) {
+  if (a.kind === "citation") return [a];
+  return mgr.query(
+    "SELECT * FROM artifacts WHERE project_id=? AND kind=? AND title=? ORDER BY version,id",
+    [a.project_id, a.kind, a.title],
+  );
+}
+async function requireNewDocument(mgr, p, kind, title) {
+  check(
+    !(await one(
+      mgr,
+      "SELECT id FROM artifacts WHERE project_id=? AND kind=? AND title=?",
+      [p.id, kind, title],
+    )),
+    "DOCUMENT_EXISTS",
+    "同名原生工件已存在；先读取 ID，再用 artifact revise 修订",
+    1,
+  );
+}
+function validateDocumentRole(b) {
+  check(
+    [
+      "user-original",
+      "confirmed-fact",
+      "agent-interpretation",
+      "hypothesis",
+      "reference",
+    ].includes(b.role),
+    "ROLE",
+    "必须区分原文、事实、解释、假设和参考",
+  );
+  if (b.role === "confirmed-fact") text(b.confirmation_source, "事实确认依据");
+}
+function goalContent(b) {
+  text(b.scope, "范围");
+  text(b.done_when, "完成条件");
+  check(
+    Array.isArray(b.preserve) && b.preserve.every((v) => typeof v === "string"),
+    "PRESERVE",
+    "保持项须为文字数组",
+  );
+  check(
+    ["pending", "confirmed"].includes(b.confirmation ?? "pending") &&
+      (b.confirmation !== "confirmed" ||
+        (typeof b.confirmation_source === "string" &&
+          b.confirmation_source.trim())),
+    "GOAL_CONFIRMATION",
+    "确认目标须有实际依据",
+  );
+  return {
+    schema: SCHEMA,
+    role: "goal",
+    original_text: b.original_text ?? null,
+    interpretation: b.interpretation ?? null,
+    confirmation: b.confirmation ?? "pending",
+    confirmation_source: b.confirmation_source ?? null,
+    scope: b.scope,
+    preserve: b.preserve,
+    done_when: b.done_when,
+    facts: b.facts ?? [],
+    source: text(b.source, "来源"),
+  };
+}
+async function invalidateDocumentTasks(mgr, p, ids, design) {
+  const tasks = await mgr.query(
+    "SELECT * FROM artifacts WHERE project_id=? AND kind='task'",
+    [p.id],
+  );
+  const affected = new Set(ids);
+  let changed;
+  do {
+    changed = false;
+    for (const t of tasks) {
+      if (
+        !affected.has(t.id) &&
+        (json(t.meta).retouch?.dependencies ?? []).some((id) =>
+          affected.has(id),
+        )
+      ) {
+        affected.add(t.id);
+        changed = true;
+      }
+    }
+  } while (changed);
+  for (const t of tasks.filter((x) => affected.has(x.id))) {
+    const meta = json(t.meta);
+    if (design && ids.includes(t.id)) meta.retouch.design_id = design.id;
+    meta.retouch.context_status = "needs_review";
+    if (meta.status === "done") {
+      meta.status = "doing";
+      meta.status_at = timestamp();
+    }
+    await updateTask(mgr, t, meta, meta.retouch.revision);
+    const taskNode = await one(
+      mgr,
+      "SELECT n.id,n.tree_id FROM nodes n JOIN trees tr ON tr.id=n.tree_id WHERE tr.project_id=? AND n.key=?",
+      [p.id, "task-" + t.id],
+    );
+    if (taskNode)
+      await stepState(mgr, taskNode.tree_id, "default", taskNode.id, "locked");
+  }
+}
 async function profile(mgr, p, node) {
   return artifact(mgr, json(node.payload).profile_id, p, "profile");
 }
@@ -395,6 +544,10 @@ async function brief(mgr, p) {
     profile: { ...current, content: feedback },
     tasks,
     artifacts,
+    documents: artifacts
+      .filter((a) => documentKinds.includes(a.kind))
+      .map((a) => documentDescriptor(a, artifacts))
+      .filter((a) => a.status !== "superseded"),
     relations,
     reminders: [
       feedback.rating === null ? "可补充项目评分（1–5 分）" : "",
@@ -479,6 +632,7 @@ export async function run(env, action, rest, args) {
       "brief",
       "snapshot",
       "show",
+      "document-history",
       "workspace-info",
       "restore-preview",
       "receipt",
@@ -689,7 +843,21 @@ export async function run(env, action, rest, args) {
             view: await brief(mgr, p),
             snapshot: await snapshot(mgr, p),
           };
-        if (action === "show") return artifact(mgr, text(b.id, "id"), p);
+        if (action === "show" || action === "document-history") {
+          const a = await artifact(mgr, text(b.id, "id"), p);
+          if (!documentKinds.includes(a.kind)) {
+            check(action === "show", "DOCUMENT_KIND", "历史入口只接受文档工件");
+            return a;
+          }
+          const rows = await documentRows(mgr, a);
+          if (action === "document-history")
+            return {
+              selected_id: a.id,
+              current_id: rows.at(-1).id,
+              versions: rows.map((x) => documentDescriptor(x, rows)),
+            };
+          return { ...a, native_document: documentDescriptor(a, rows) };
+        }
         if (action === "snapshot") return snapshot(mgr, p);
         if (action === "timeline") {
           const artifacts = await mgr.query(
@@ -725,10 +893,18 @@ export async function run(env, action, rest, args) {
             .replaceAll("\\", "\\\\")
             .replaceAll("%", "\\%")
             .replaceAll("_", "\\_");
-          return mgr.query(
+          const matches = await mgr.query(
             "SELECT * FROM artifacts WHERE project_id=? AND kind IN ('design','spec') AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\') ORDER BY kind,title,version DESC LIMIT 100",
             [p.id, "%" + q + "%", "%" + q + "%"],
           );
+          const documents = await mgr.query(
+            "SELECT * FROM artifacts WHERE project_id=? AND kind IN ('design','spec')",
+            [p.id],
+          );
+          return matches.map((a) => ({
+            ...a,
+            native_document: documentDescriptor(a, documents),
+          }));
         }
         check(
           p.status === "active" ||
@@ -820,42 +996,11 @@ export async function run(env, action, rest, args) {
           await refreshGraph(mgr, api, node.tree_id);
         } else if (action === "goal-new") {
           text(b.title, "目标");
-          text(b.scope, "范围");
-          text(b.done_when, "完成条件");
-          check(
-            Array.isArray(b.preserve) &&
-              b.preserve.every((v) => typeof v === "string"),
-            "PRESERVE",
-            "保持项须为文字数组",
-          );
-          check(
-            ["pending", "confirmed"].includes(b.confirmation ?? "pending") &&
-              (!(b.confirmation === "confirmed") ||
-                (typeof b.confirmation_source === "string" &&
-                  b.confirmation_source.trim())),
-            "GOAL_CONFIRMATION",
-            "确认目标须有实际依据",
-          );
-          const a = await append(
-            mgr,
-            p,
-            "spec",
-            b.title,
-            {
-              schema: SCHEMA,
-              role: "goal",
-              original_text: b.original_text ?? null,
-              interpretation: b.interpretation ?? null,
-              confirmation: b.confirmation ?? "pending",
-              confirmation_source: b.confirmation_source ?? null,
-              scope: b.scope,
-              preserve: b.preserve,
-              done_when: b.done_when,
-              facts: b.facts ?? [],
-              source: text(b.source, "来源"),
-            },
-            { schema: SCHEMA, role: "goal" },
-          );
+          await requireNewDocument(mgr, p, "spec", b.title);
+          const a = await append(mgr, p, "spec", b.title, goalContent(b), {
+            schema: SCHEMA,
+            role: "goal",
+          });
           await relation(
             mgr,
             "node",
@@ -1103,19 +1248,9 @@ async function workflow({ mgr, api, p, node, b, action }) {
     const t = b.task ? await task(mgr, p, b.task) : null;
     text(b.title, "标题");
     text(b.content, "正文");
-    check(
-      [
-        "user-original",
-        "confirmed-fact",
-        "agent-interpretation",
-        "hypothesis",
-        "reference",
-      ].includes(b.role),
-      "ROLE",
-      "必须区分原文、事实、解释、假设和参考",
-    );
-    if (b.role === "confirmed-fact")
-      text(b.confirmation_source, "事实确认依据");
+    validateDocumentRole(b);
+    if (["design", "spec"].includes(b.kind))
+      await requireNewDocument(mgr, p, b.kind, b.title);
     const a = await append(mgr, p, b.kind, b.title, b.content, {
       schema: SCHEMA,
       role: b.role,
@@ -1143,15 +1278,6 @@ async function workflow({ mgr, api, p, node, b, action }) {
         t.meta.status = "doing";
         t.meta.status_at = timestamp();
       }
-      if (previous)
-        await relation(
-          mgr,
-          "artifact",
-          previous,
-          "artifact",
-          a.id,
-          "superseded-by",
-        );
       await updateTask(mgr, t.a, t.meta, t.meta.retouch.revision);
       for (const dependent of await mgr.query(
         "SELECT * FROM artifacts WHERE project_id=? AND kind='task' AND id<>?",
@@ -1164,7 +1290,136 @@ async function workflow({ mgr, api, p, node, b, action }) {
         }
       }
     }
-    return { artifact: a };
+    return {
+      artifact: a,
+      native_document: documentDescriptor(a, await documentRows(mgr, a)),
+    };
+  }
+  if (action === "document-revise") {
+    check(
+      Object.keys(b).every((key) =>
+        [
+          "project",
+          "id",
+          "expected_version",
+          "expected_hash",
+          "content",
+          "reason",
+          "source",
+          "role",
+          "confirmation_source",
+          "design_type",
+        ].includes(key),
+      ),
+      "DOCUMENT_FIELDS",
+      "修订不能更改类型、标题、任务或原生元数据；读取原 ID 后提交正文",
+    );
+    const old = await artifact(mgr, text(b.id, "id"), p),
+      meta = json(old.meta);
+    check(
+      ["design", "spec"].includes(old.kind) && meta.role !== "workflow-plan",
+      "DOCUMENT_KIND",
+      "只修订 design/spec；冻结计划使用 plan submit，citation 保持精确快照",
+    );
+    const rows = await documentRows(mgr, old);
+    check(
+      Number.isSafeInteger(b.expected_version) &&
+        b.expected_version > 0 &&
+        /^[a-f0-9]{64}$/.test(b.expected_hash),
+      "DOCUMENT_PRECONDITION",
+      "修订须提供已读取的原生 version 和 content_hash",
+    );
+    check(
+      old.id === rows.at(-1).id &&
+        b.expected_version === old.version &&
+        b.expected_hash === digest(old.content),
+      "DOCUMENT_STALE",
+      "工件已变化或读取条件不符；先读取当前工件，不能从旧副本追加版本",
+      1,
+    );
+    text(b.reason, "修订原因");
+    text(b.source, "修订来源");
+    let content;
+    if (meta.role === "goal") {
+      check(
+        b.content &&
+          typeof b.content === "object" &&
+          !Array.isArray(b.content) &&
+          b.role === undefined &&
+          b.confirmation_source === undefined &&
+          b.design_type === undefined,
+        "GOAL_CONTENT",
+        "目标修订须提交完整结构化目标，确认依据写在目标正文中",
+      );
+      content = goalContent(b.content);
+    } else {
+      text(b.content, "正文");
+      content = b.content;
+      validateDocumentRole({ role: "reference", ...meta, ...b });
+    }
+    if (b.design_type !== undefined)
+      check(
+        old.kind === "design" &&
+          ["ui-ux", "arch", "decision"].includes(b.design_type),
+        "DESIGN_TYPE",
+        "design_type 无效",
+      );
+    const nextMeta = {
+      role: "reference",
+      ...meta,
+      previous: old.id,
+      revision_reason: b.reason,
+      source: b.source,
+      ...(b.role !== undefined ? { role: b.role } : {}),
+      ...(b.confirmation_source !== undefined
+        ? { confirmation_source: b.confirmation_source }
+        : {}),
+      ...(b.design_type !== undefined ? { design_type: b.design_type } : {}),
+    };
+    const a = await append(mgr, p, old.kind, old.title, content, nextMeta);
+    await relation(mgr, "artifact", old.id, "artifact", a.id, "superseded-by");
+    // Carry document ownership forward. Goal bindings and reference edges stay on the exact version.
+    const attachments = await mgr.query(
+      "SELECT * FROM relations WHERE dst_type='artifact' AND dst_id=? AND src_type IN ('task','node')",
+      [old.id],
+    );
+    for (const r of attachments)
+      if (
+        ["described-by", "decided-by", "specified-by"].includes(r.rel) &&
+        (meta.role !== "goal" ||
+          (r.src_type === "node" && r.src_id === node.id))
+      )
+        await relation(mgr, r.src_type, r.src_id, "artifact", a.id, r.rel);
+    const tasks = await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=? AND kind='task'",
+      [p.id],
+    );
+    const seriesIds = new Set(rows.map((x) => x.id));
+    const affected = tasks
+      .filter(
+        (t) =>
+          t.id === meta.task_id ||
+          (meta.role !== "goal" &&
+            attachments.some(
+              (r) =>
+                r.src_type === "task" &&
+                r.src_id === t.id &&
+                ["described-by", "decided-by", "specified-by"].includes(r.rel),
+            )) ||
+          (meta.role === "goal" &&
+            seriesIds.has(json(t.meta).retouch?.goal_id)),
+      )
+      .map((t) => t.id);
+    await invalidateDocumentTasks(
+      mgr,
+      p,
+      affected,
+      old.kind === "design" ? a : null,
+    );
+    return {
+      artifact: a,
+      native_document: documentDescriptor(a, [...rows, a]),
+    };
   }
   if (action === "task-context-review") {
     const { a, meta } = await task(mgr, p, b.task);

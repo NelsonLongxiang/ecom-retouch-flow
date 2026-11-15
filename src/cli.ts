@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { NativeClient } from "./native/client.ts";
+import { exportDocument } from "./native/documents.ts";
 import {
   registerExecutor,
   checkExecutor,
@@ -46,6 +47,8 @@ const options = {
   task: { type: "string" },
   "request-id": { type: "string" },
   "expected-revision": { type: "string" },
+  "expected-version": { type: "string" },
+  "expected-hash": { type: "string" },
   to: { type: "string" },
   role: { type: "string" },
   parent: { type: "string" },
@@ -210,9 +213,34 @@ const commands: Record<string, Command> = {
   "artifact show": {
     operands: 1,
     flags: ["project"],
-    description: "读取原生工件",
+    description: "按原生 ID 读取正文及当前版本/hash，旧版本保持可读",
     action: "show",
     readonly: true,
+  },
+  "artifact history": {
+    operands: 1,
+    flags: ["project"],
+    description: "读取同一原生 design/spec/citation 文档的版本历史",
+    action: "document-history",
+    readonly: true,
+  },
+  "artifact revise": {
+    operands: 1,
+    flags: [
+      "project",
+      "file",
+      "expected-version",
+      "expected-hash",
+      "request-id",
+    ],
+    description:
+      "以已读取的 design/spec ID、版本和 hash 追加修订，保留历史和关系",
+    action: "document-revise",
+  },
+  "artifact export": {
+    operands: 1,
+    flags: ["project", "to"],
+    description: "显式导出带原生身份/版本/hash的 Markdown 副本，不覆盖已有文件",
   },
   "artifact review": {
     operands: 1,
@@ -589,6 +617,11 @@ export async function execute(
     requireThat(project, "MISSING_PROJECT", "缺少 --project");
     return project as string;
   };
+  if (command === "artifact export")
+    return answer(
+      command,
+      await exportDocument(client, needProject(), words[0], required("to")),
+    );
   if (command === "executor register")
     return answer(
       command,
@@ -837,6 +870,16 @@ export async function execute(
     ] = words[0];
   if (spec.flags.includes("expected-revision"))
     payload.expected_revision = revision();
+  if (spec.flags.includes("expected-version")) {
+    const n = Number(required("expected-version"));
+    requireThat(
+      Number.isSafeInteger(n) && n > 0,
+      "DOCUMENT_PRECONDITION",
+      "工件版本须为正整数",
+    );
+    payload.expected_version = n;
+    payload.expected_hash = required("expected-hash");
+  }
   const data = await client.call(
     spec.action,
     payload,

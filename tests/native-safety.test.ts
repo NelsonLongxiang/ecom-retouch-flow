@@ -245,11 +245,12 @@ test(
         "citation",
       )
     ).artifact;
-    await call("document", {
+    await call("document-revise", {
       project: p,
-      task: task.id,
-      kind: "design",
-      title: "原木材质设计",
+      id: design.id,
+      expected_version: design.version,
+      expected_hash: digest(design.content),
+      reason: "补充光照条件",
       content: "新版设计补充光照条件",
       role: "agent-interpretation",
       source: "fixture",

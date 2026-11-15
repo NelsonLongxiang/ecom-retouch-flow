@@ -1,5 +1,5 @@
 import { NativeClient } from "./client.ts";
-import { digest } from "./plugin/commands.mjs";
+import { digest, documentDescriptor } from "./plugin/commands.mjs";
 import { requireThat } from "../domain/model.ts";
 
 export async function registerWorkspace(
@@ -266,7 +266,8 @@ export async function searchContext(owner: NativeClient, query: string) {
         rating: instance.view.profile.content.rating,
         conclusion: instance.view.profile.content.conclusion,
         role: JSON.parse(a.meta || "{}").role ?? "reference",
-        status: "observed-current",
+        ...(a.native_document ??
+          documentDescriptor(a, instance.view.artifacts)),
         source_fingerprint: instance.fingerprint,
       });
     }

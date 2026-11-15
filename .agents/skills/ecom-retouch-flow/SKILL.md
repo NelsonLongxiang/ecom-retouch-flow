@@ -10,3 +10,5 @@ description: 用基于 ygl-trees 原生 CLI 的电商修图流组织部位需求
 正常入口为 `node src/cli.ts`（0.4.0 ygl 原生封装）。接手先读 project brief；有文字且未停用的需求参与，后续步骤承接前序实际结果。宿主工具只在首次非重放 dispatch 允许执行时调用一次；unknown 先对账，不能重发。API fallback 仅经明确配置与费用／外发授权后显式调用，已收到结果的本地恢复不能再次访问图像服务。
 
 跨工作区使用原生项目 ZIP，标签与 design/spec 检索覆盖所有登记工作区。评分、结语和完结来自用户；频率不代表满意度。旧账本和 v1 包须显式只读迁移，不能在真实工作区继续旧账本写入。
+
+业务方案以关联项目／任务的原生 design/spec/citation 为正式入口。brief.documents → artifact show 读取，artifact revise 按 ID/version/hash 修订 design/spec，artifact history 查历史。Markdown 仅由 artifact export 显式生成可读副本，目录由交付需求决定；不将 docs 或 v1/v2.md 当正式业务版本库。

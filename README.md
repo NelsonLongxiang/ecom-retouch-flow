@@ -17,6 +17,8 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 业务工作区与源码分开。初始化只向明确的新工作区安装本项目原生扩展；不会部署到默认 ygl home。正式读写均经 `retouch → ygl CLI → 原生插件/原生命令`。也可以直接用 ygl 的 project/task/produce/rel/node 命令查看这些实体。
 
+方案、规格和来源分别保存在关联项目／任务的原生 design/spec/citation。接手从 brief.documents 定位，artifact show/history 读取与追溯，artifact revise 按原生 ID、版本/hash 修订。Markdown 只由 artifact export 显式生成副本，ZIP 用于交换；业务正式版本不由 docs 或 v1/v2.md 文件名决定。操作见 [原生文档](docs/CLI.md#原生文档与导出)。
+
 - 需求按部位分组，每组独立补充文字；文字非空且未停用即参与。
 - 目标使用原生 spec，步骤绑定明确顺序、依赖、输入和坐标系；检查通过才进入下一步。
 - 默认由宿主 Codex／ChatGPT 的实际图像工具执行；独立 API fallback 仅在明确配置、批准并执行 `run execute-api` 时调用。

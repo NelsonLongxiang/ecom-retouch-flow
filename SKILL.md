@@ -9,13 +9,17 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 
 已有项目先运行 `project brief <id> --workspace <业务目录>`。以实际目标版本、任务进度、候选、来源角色和未知请求为依据接手，不根据当前源码目录猜项目。缺工作区时使用明确空目录和已安装的 ygl 0.125.0 入口初始化；不能将此授权扩大为共享插件部署或真实数据迁移。
 
+业务方案的正式入口是工作区内关联项目／任务的原生工件：变体与套图方案用 design，目标、规格和约束用 spec，来源快照用 citation。先从 brief.documents 定位当前 ID，再 `artifact show` 读取正文、版本、hash 和事实角色；历史用 `artifact history`。修订已有 design/spec 用 `artifact revise`，提交已读取的 version/hash、完整正文、原因和来源，保留原生历史和关联；同名重复 register 会拒绝。citation 保持精确快照，来源更新后重新阅读并明确引用，不编辑旧引用。详细示例见 [原生文档操作](docs/CLI.md#原生文档与导出)。
+
+面向用户报告工作区、项目／任务、工件 ID 和原生版本；正文中既有的 v1/v2 标记不代表原生 version。Markdown 和 ZIP 是显式导出或交换副本，不靠文件名管理正式版本，不默认先写业务 `docs/*.md` 再补登记。需要可读文件时 `artifact export --to <明确路径>`；导出不回写原生正文，也不替代设计评审。技能不强制副本目录，源码仓库 docs 保存的是产品开发规范。
+
 1. 保存用户原文，建立原生 Project、Goal spec 和 Task，明确预期交付物与完成条件。需求按部位、材质等分组，每组独立输入补充；文本非空且 `disabled:false` 即参与。
 2. 导入实际原图／参考图，保留职责。编排顺序步骤，每步说明 prompt、前置步骤和保持项。局部修改声明与输入尺寸一致的坐标系；后一步读取前一步通过检查的实际结果。全图变尺寸与后处理分别登记，不能改写模型原生尺寸。
 3. 用 `plan submit` 冻结计划。记录当前授权范围内的真实用户确认，`approval grant` 绑定计划 ID/hash、工作区和期限，再 `run start`。已明确的确认可复用为来源，不反复索取同意，也不能代填用户确认。
 4. 调用图像工具前按 [宿主协议](docs/HOST-EXECUTOR.md) 操作。只有首次 `run dispatch` 返回 `allow_execute:true` 且不是重放时，才允许随后调用宿主图像工具一次。工具缺失时保留状态，不自动读取 key 或转到收费 API。
 5. 用 `run complete --file <真实结果>` 回接图片，CLI 保留原始输出并在局部步骤合成批准区域。查看实际候选后 `run review`，PASS 才推进；UNKNOWN 待补证据，FAIL 保留失败候选。全部步骤通过后，`run accept` 保存用户对确切 hash 的接受，`run deliver` 交付图片与清单。
 
-所有变更使用稳定 request-id，更新使用当前 revision。任务 revision 在原生 `meta.retouch.revision`，运行 revision 在 `meta.revision`，项目 profile 使用原生工件 version。重放只读原回执，不能换请求键绕过未知状态。收到请求结果不明时先读 `run status`／`project brief`，保全 unknown，再回接或登记真实对账结果，不为补记录重新出图。
+业务写入使用稳定 request-id。任务更新使用原生 `meta.retouch.revision`，运行使用 `meta.revision`，项目 profile 使用原生工件 version；文档修订使用已读取的 version/hash。重放只读原回执，不能换请求键绕过未知状态。收到请求结果不明时先读 `run status`／`project brief`，保全 unknown，再回接或登记真实对账结果，不为补记录重新出图。
 
 宿主工具缺失不会自动改用 API。用户明确选择 API fallback 时，按 [API 协议与示例](docs/API-FALLBACK.md) 登记 executor-profile，在计划中绑定该配置，再保存真实的素材外发、费用和最大请求次数确认。密钥仅通过环境注入，不贴到聊天、文件、命令行或回执；模型必须明确，不自动替换。`executor check` 只检查配置状态，不能据此宣称凭证或模型服务已验证。
 

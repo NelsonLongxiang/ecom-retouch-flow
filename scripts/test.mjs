@@ -9,7 +9,8 @@ const args = process.argv.slice(2);
 let entry = process.env.RETOUCH_YGL_ENTRY,
   unitOnly = false,
   legacy = false,
-  apiOnly = false;
+  apiOnly = false,
+  documentsOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -18,10 +19,13 @@ for (let index = 0; index < args.length; index++) {
   else if (args[index] === "--suite" && args[index + 1] === "api") {
     apiOnly = true;
     index++;
+  } else if (args[index] === "--suite" && args[index + 1] === "documents") {
+    documentsOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
-if (legacy && apiOnly)
-  throw new Error("--legacy and --suite api cannot be combined.");
+if (Number(legacy) + Number(apiOnly) + Number(documentsOnly) > 1)
+  throw new Error("Choose one test suite.");
 if (!unitOnly && !entry)
   throw new Error(
     "Supply --ygl-entry <installed-bin.cjs> for integration tests, or explicitly choose --unit-only.",
@@ -39,7 +43,9 @@ const files = (await fs.readdir(path.join(root, "tests")))
         ? !name.startsWith("native-")
         : apiOnly
           ? name.startsWith("native-api")
-          : name.startsWith("native-")),
+          : documentsOnly
+            ? name.startsWith("native-documents")
+            : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -108,6 +114,13 @@ const apiEvidence =
         .readFile(path.join(runRoot, "native-api-evidence.json"), "utf8")
         .then(JSON.parse)
         .catch(() => null);
+const documentsEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(path.join(runRoot, "native-documents-evidence.json"), "utf8")
+        .then(JSON.parse)
+        .catch(() => null);
 const passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -120,8 +133,11 @@ const passed =
           contextEvidence?.verdict === "PASS"
         : apiOnly
           ? apiEvidence?.verdict === "PASS"
-          : wrapperEvidence?.verdict === "PASS" &&
-            apiEvidence?.verdict === "PASS")));
+          : documentsOnly
+            ? documentsEvidence?.verdict === "PASS"
+            : wrapperEvidence?.verdict === "PASS" &&
+              apiEvidence?.verdict === "PASS" &&
+              documentsEvidence?.verdict === "PASS")));
 const snapshots = [];
 async function snapshot(directory) {
   for (const item of await fs.readdir(path.join(root, directory), {
@@ -169,7 +185,12 @@ const report = {
   architecture: legacy
     ? "HISTORICAL_LEDGER_FIXTURES_ONLY"
     : "YGL_NATIVE_WRAPPER",
-  test_suite: apiOnly ? "API_FALLBACK" : "FULL",
+  test_suite: apiOnly
+    ? "API_FALLBACK"
+    : documentsOnly
+      ? "NATIVE_DOCUMENTS"
+      : "FULL",
+  native_documents_evidence: documentsEvidence,
   native_api_evidence: apiEvidence,
   native_wrapper_evidence: wrapperEvidence,
   native_evidence: nativeEvidence,
@@ -198,9 +219,11 @@ const output = path.join(
     ? "legacy-tests.json"
     : apiOnly
       ? "api-tests.json"
-      : unitOnly
-        ? "unit-tests.json"
-        : "native-wrapper-tests.json",
+      : documentsOnly
+        ? "documents-tests.json"
+        : unitOnly
+          ? "unit-tests.json"
+          : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);
