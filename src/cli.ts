@@ -8,6 +8,7 @@ import { exportDocument } from "./native/documents.ts";
 import {
   registerExecutor,
   checkExecutor,
+  diagnoseExecutor,
   executeApi,
   recoverApi,
   reconcileApiResult,
@@ -18,6 +19,7 @@ import {
   completeRun,
   deliverRun,
   deliverArtifact,
+  abandonDelivery,
   objectBytes,
 } from "./native/files.ts";
 import {
@@ -110,6 +112,11 @@ const commands: Record<string, Command> = {
     flags: [],
     description: "从原生事件读取项目时间线",
   },
+  "project check": {
+    operands: 1,
+    flags: [],
+    description: "检查业务完成状态、真实交付与待恢复状态的一致性",
+  },
   "project tags": {
     operands: 0,
     flags: ["project", "file", "expected-revision", "request-id"],
@@ -195,6 +202,12 @@ const commands: Record<string, Command> = {
     flags: ["project", "task", "file", "request-id"],
     description: "原生 spec；明确事实角色与来源",
   },
+  "facts register": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "以原生 spec 保存字段级商品事实、来源摘录及确认边界",
+    action: "facts-register",
+  },
   "method register": {
     operands: 0,
     flags: ["project", "file", "request-id"],
@@ -209,6 +222,13 @@ const commands: Record<string, Command> = {
     operands: 1,
     flags: ["project", "width", "height", "request-id"],
     description: "显式后处理，保留模型原生结果与尺寸来源",
+  },
+  "asset dimensions": {
+    operands: 1,
+    flags: ["project"],
+    description: "一次查询请求尺寸、模型原生尺寸、后处理和完整派生链",
+    action: "dimensions",
+    readonly: true,
   },
   "artifact show": {
     operands: 1,
@@ -252,6 +272,11 @@ const commands: Record<string, Command> = {
     operands: 1,
     flags: ["project", "to", "request-id"],
     description: "交付已接受的外部候选，无需重新出图",
+  },
+  "delivery abandon": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "检查发布清单后显式处置未完成交付，保留历史和文件",
   },
   "execution record": {
     operands: 0,
@@ -407,6 +432,19 @@ const commands: Record<string, Command> = {
     operands: 1,
     flags: ["project"],
     description: "核对执行配置与凭证是否设置，不发出网络请求",
+  },
+  "executor diagnose": {
+    operands: 0,
+    flags: ["project", "file"],
+    description:
+      "诊断候选配置的授权、存在性、协议和凭证，失败时不登记或付费探测",
+  },
+  "executor observe": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description:
+      "记录宿主实际观察到的内置图像工具状态，时间与来源进入项目上下文",
+    action: "executor-observe",
   },
   "run execute-api": {
     operands: 1,
@@ -603,6 +641,11 @@ export async function execute(
   }
   if (command === "project brief")
     return answer(command, await client.call("brief", { project: words[0] }));
+  if (command === "project check")
+    return answer(
+      command,
+      await client.call("business-check", { project: words[0] }),
+    );
   if (command === "project timeline")
     return answer(
       command,
@@ -622,10 +665,26 @@ export async function execute(
       command,
       await exportDocument(client, needProject(), words[0], required("to")),
     );
+  if (command === "delivery abandon")
+    return answer(
+      command,
+      await abandonDelivery(
+        client,
+        needProject(),
+        words[0],
+        (await body()).statement,
+        request(),
+      ),
+    );
   if (command === "executor register")
     return answer(
       command,
       await registerExecutor(client, needProject(), await body(), request()),
+    );
+  if (command === "executor diagnose")
+    return answer(
+      command,
+      await diagnoseExecutor(client, needProject(), await body()),
     );
   if (command === "executor check")
     return answer(
@@ -807,12 +866,23 @@ export async function execute(
       );
       results.push(result);
     }
+    const business_health = await client.call("business-check", {
+      project: needProject(),
+    });
+    if (business_health.status !== "PASS")
+      throw new RetouchError(
+        "BUSINESS_STATE",
+        "原生索引已核验，但业务完成状态有矛盾；请读 project check",
+        1,
+        business_health,
+      );
     return answer(
       command,
       {
         project_id: s.project_id,
         fingerprint: s.fingerprint,
         results,
+        business_health,
         image_execution: "NOT_RUN",
       },
       "verified",

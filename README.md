@@ -19,6 +19,8 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 方案、规格和来源分别保存在关联项目／任务的原生 design/spec/citation。接手从 brief.documents 定位，artifact show/history 读取与追溯，artifact revise 按原生 ID、版本/hash 修订。Markdown 只由 artifact export 显式生成副本，ZIP 用于交换；业务正式版本不由 docs 或 v1/v2.md 文件名决定。操作见 [原生文档](docs/CLI.md#原生文档与导出)。
 
+试点补齐业务健康检查、交付预检与恢复、字段事实和概念／实物用途、请求／原生／导出尺寸链、原始评分量表，以及经授权的当前 Codex 配置复用和显式私网 HTTP 接入。所有事实仍在 ygl 原生工件中；诊断不自动发起图像请求。契约、示例和隔离验证见 [试点问题验收](docs/ISSUE-ACCEPTANCE.md)。
+
 - 需求按部位分组，每组独立补充文字；文字非空且未停用即参与。
 - 目标使用原生 spec，步骤绑定明确顺序、依赖、输入和坐标系；检查通过才进入下一步。
 - 默认由宿主 Codex／ChatGPT 的实际图像工具执行；独立 API fallback 仅在明确配置、批准并执行 `run execute-api` 时调用。
@@ -31,6 +33,6 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 旧 0.2.0 账本和 v1 ZIP 仅通过 `legacy inspect/migrate` 只读读取，迁入新建隔离工作区；不自动修改真实用户数据。原生 v2 ZIP 不静默接受旧格式。操作和限制见 [项目上下文](docs/PROJECT-CONTEXT.md)。
 
-测试使用真实 ygl CLI 与本地图片夹具，**未调用真实 AI 出图或收费 API，未声称商品图质量已验收**。完整证据由测试工具生成，说明见 [验证](docs/verification/README.md)。历史 42 项回归通过 `--legacy` 显式运行，不充当原生架构验收。
+自动化回归使用真实 ygl CLI 与本地图片夹具，当前完整结果为 17/17 PASS。2026-11-15 另经用户明确授权，使用合成素材完成一次 `gpt-image-2` 原生 API 调用，实际返回 1254×1254 PNG，并验证原生状态可独立接手；商品图质量与用户接受仍单独判断。证据和范围见 [验证](docs/verification/README.md)。历史 42 项回归通过 `--legacy` 显式运行，不充当原生架构验收。
 
 MIT License。原浏览器插件冻结于本地 `archive/`，归档、业务运行状态、凭证与机器验证记录不参与 Git 跟踪。

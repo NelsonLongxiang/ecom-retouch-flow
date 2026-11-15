@@ -11,6 +11,54 @@ import {
 import { NativeClient } from "./client.ts";
 import { objectBytes, putObject } from "./files.ts";
 import { Images } from "../adapters/images.ts";
+export function contextCapabilities(snapshot: any): string[] {
+  const artifacts = snapshot.tables.artifacts;
+  const has = (predicate: (a: any, m: any, c: any) => boolean) =>
+    artifacts.some((a: any) => {
+      let c: any = null;
+      try {
+        c = JSON.parse(a.content);
+      } catch {}
+      return predicate(a, JSON.parse(a.meta || "{}"), c);
+    });
+  return [
+    "ygl-native-project/v1",
+    "media-sha256",
+    "historical-permission-isolation",
+    ...(has((a) => a.kind === "executor-profile")
+      ? ["retouch-api-fallback/v1"]
+      : []),
+    ...(has((a, m, c) => a.kind === "profile" && !!c?.rating_record)
+      ? ["retouch-rating-scale/v1"]
+      : []),
+    ...(has(
+      (a, m, c) =>
+        m.role === "product-facts" ||
+        !!c?.facts_id ||
+        (m.retouch?.purpose && m.retouch.purpose !== "unspecified") ||
+        (c?.fact_check &&
+          (c.fact_check.purpose !== "unspecified" ||
+            c.fact_check.required_keys?.length)),
+    )
+      ? ["retouch-product-facts/v1"]
+      : []),
+    ...(has((a, m, c) => !!c?.profile?.private_http)
+      ? ["retouch-private-http/v1"]
+      : []),
+    ...(has((a, m, c) => !!c?.profile?.configuration_source)
+      ? ["retouch-configuration-source/v1"]
+      : []),
+    ...(has(
+      (a, m, c) =>
+        !!m.dimension_provenance ||
+        !!m.delivery_dimensions ||
+        !!m.requested_dimensions ||
+        !!c?.delivery_canvas,
+    )
+      ? ["retouch-dimensions/v1"]
+      : []),
+  ];
+}
 
 export async function exportProject(
   client: NativeClient,
@@ -51,16 +99,7 @@ export async function exportProject(
     snapshot_id: snapshot.fingerprint,
     scope: "full_project",
     completeness: { status: "complete", missing: [] },
-    requires: [
-      "ygl-native-project/v1",
-      "media-sha256",
-      "historical-permission-isolation",
-      ...(snapshot.tables.artifacts.some(
-        (a: any) => a.kind === "executor-profile",
-      )
-        ? ["retouch-api-fallback/v1"]
-        : []),
-    ],
+    requires: contextCapabilities(snapshot),
     project_id: snapshot.project_id,
     fingerprint: snapshot.fingerprint,
     files: [...entries]
@@ -127,6 +166,11 @@ export async function inspectProject(file: string) {
           "media-sha256",
           "historical-permission-isolation",
           "retouch-api-fallback/v1",
+          "retouch-rating-scale/v1",
+          "retouch-product-facts/v1",
+          "retouch-private-http/v1",
+          "retouch-configuration-source/v1",
+          "retouch-dimensions/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",
@@ -156,11 +200,11 @@ export async function inspectProject(file: string) {
   }
   validateSnapshot(snapshot);
   requireThat(
-    !snapshot.tables.artifacts.some(
-      (a: any) => a.kind === "executor-profile",
-    ) || manifest.requires.includes("retouch-api-fallback/v1"),
+    contextCapabilities(snapshot).every((cap) =>
+      manifest.requires.includes(cap),
+    ),
     "ZIP_CAPABILITY",
-    "API fallback 上下文必须声明所需能力，旧工具不能静默丢失语义",
+    "上下文必须声明评分、商品事实、执行配置等所需能力，旧工具不能静默丢失语义",
     1,
   );
   assertNoCredentials(snapshot);

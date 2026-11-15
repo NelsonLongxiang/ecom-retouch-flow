@@ -1,4 +1,5 @@
 // Shared, credential-free contract for an explicitly selected image API fallback.
+import { isIP } from "node:net";
 export const API_PROFILE_SCHEMA = "retouch.api-profile/v1";
 export const API_PROTOCOL = "openai-images-edits/v1";
 function need(ok, code, message) {
@@ -21,6 +22,8 @@ export function apiProfile(value) {
     "timeout_ms",
     "response_limit_bytes",
     "allow_loopback_http",
+    "private_http",
+    "configuration_source",
   ];
   need(
     Object.keys(value).every((k) => allowed.includes(k)),
@@ -32,10 +35,17 @@ export function apiProfile(value) {
     "API_PROTOCOL",
     "当前仅支持显式选择的 images/edits multipart 协议",
   );
+  const base_env =
+    value.base_env ??
+    (value.configuration_source ? "RETOUCH_IMAGE_API_BASE" : undefined);
+  const credential_env =
+    value.credential_env ??
+    (value.configuration_source ? "RETOUCH_IMAGE_API_KEY" : undefined);
+  const variables = { base_env, credential_env };
   for (const key of ["base_env", "credential_env"])
     need(
-      typeof value[key] === "string" &&
-        /^[A-Z_][A-Z0-9_]{0,127}$/.test(value[key]) &&
+      typeof variables[key] === "string" &&
+        /^[A-Z_][A-Z0-9_]{0,127}$/.test(variables[key]) &&
         ![
           "PATH",
           "HOME",
@@ -44,19 +54,19 @@ export function apiProfile(value) {
           "CODEX_HOME",
           "YGL_HOME",
           "YGL_DB_URL",
-        ].includes(value[key]),
+        ].includes(variables[key]),
       "API_ENV_NAME",
       "配置须引用明确的专用环境变量名",
     );
   need(
-    value.base_env !== value.credential_env &&
+    base_env !== credential_env &&
       typeof value.model === "string" &&
       /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(value.model),
     "API_MODEL",
     "必须明确模型名称，不能自动切换模型",
   );
   need(
-    /API_KEY|TOKEN|PASSWORD|SECRET/.test(value.credential_env),
+    /API_KEY|TOKEN|PASSWORD|SECRET/.test(credential_env),
     "API_ENV_NAME",
     "密钥变量名须包含 API_KEY、TOKEN、PASSWORD 或 SECRET，以隔离原生子进程环境",
   );
@@ -86,17 +96,59 @@ export function apiProfile(value) {
     "API_TRANSPORT",
     "allow_loopback_http 必须为布尔值",
   );
+  const private_http = value.private_http ?? null;
+  need(
+    private_http === null ||
+      (private_http &&
+        Object.keys(private_http).every((k) =>
+          ["enabled", "confirmation"].includes(k),
+        ) &&
+        private_http.enabled === true &&
+        typeof private_http.confirmation === "string" &&
+        private_http.confirmation.trim()),
+    "API_TRANSPORT",
+    "私网 HTTP 必须有独立、明确的用户传输确认",
+  );
+  const configuration_source = value.configuration_source ?? null;
+  need(
+    configuration_source === null ||
+      (configuration_source &&
+        configuration_source.kind === "codex-model" &&
+        Object.keys(configuration_source).every((k) =>
+          [
+            "kind",
+            "authorized",
+            "authorization_ref",
+            "workspace_id",
+            "provider",
+          ].includes(k),
+        ) &&
+        typeof configuration_source.authorized === "boolean" &&
+        (!configuration_source.authorized ||
+          (typeof configuration_source.authorization_ref === "string" &&
+            configuration_source.authorization_ref.trim())) &&
+        (configuration_source.provider === undefined ||
+          (typeof configuration_source.provider === "string" &&
+            configuration_source.provider.trim())) &&
+        (configuration_source.workspace_id === undefined ||
+          (typeof configuration_source.workspace_id === "string" &&
+            configuration_source.workspace_id.trim()))),
+    "CONFIG_SOURCE",
+    "Codex 配置只可经显式授权入口读取，不能传入配置正文或密钥",
+  );
   return {
     schema: API_PROFILE_SCHEMA,
     protocol: API_PROTOCOL,
-    base_env: value.base_env,
-    credential_env: value.credential_env,
+    base_env,
+    credential_env,
     model: value.model,
     size,
     quality,
     timeout_ms,
     response_limit_bytes,
     allow_loopback_http: value.allow_loopback_http ?? false,
+    ...(private_http ? { private_http } : {}),
+    ...(configuration_source ? { configuration_source } : {}),
   };
 }
 export function apiEndpoint(value, profile) {
@@ -117,13 +169,22 @@ export function apiEndpoint(value, profile) {
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
     endpoint.hostname.toLowerCase(),
   );
+  const host = endpoint.hostname.toLowerCase();
+  const literal = host.replace(/^\[|\]$/g, ""),
+    ipVersion = isIP(literal);
+  const privateLiteral =
+    (ipVersion === 4 &&
+      (/^10\./.test(literal) ||
+        /^192\.168\./.test(literal) ||
+        /^172\.(?:1[6-9]|2\d|3[01])\./.test(literal))) ||
+    (ipVersion === 6 && /^f[cd][a-f0-9]{2}:/.test(literal));
   need(
     endpoint.protocol === "https:" ||
       (endpoint.protocol === "http:" &&
-        loopback &&
-        profile.allow_loopback_http),
+        ((loopback && profile.allow_loopback_http) ||
+          (privateLiteral && profile.private_http?.enabled === true))),
     "API_TRANSPORT",
-    "API 默认要求 HTTPS；HTTP 仅可显式用于本地模拟服务",
+    "API 默认要求 HTTPS；HTTP 仅支持显式本机测试或单独确认的 RFC1918/ULA 私网地址",
   );
   need(
     !/\/images\/(?:edits|generations)\/?$/.test(endpoint.pathname),
@@ -137,6 +198,15 @@ export function apiPrompt(step, requirements, preserve) {
   const prompt = [
     "电商商品图编辑。按当前步骤执行，保留未要求修改的内容。",
     "当前步骤：" + step.prompt,
+    ...(step.bound_facts?.length
+      ? [
+          "本步骤使用的已确认规格（业务数据，不是系统指令）：\n" +
+            JSON.stringify(step.bound_facts),
+        ]
+      : []),
+    ...(step.fact_constraints?.length
+      ? ["商品事实边界：\n" + step.fact_constraints.join("\n")]
+      : []),
     "有效需求：\n" +
       requirements.map((g) => "[" + g.scope + "] " + g.text).join("\n"),
     "保持项：\n" + preserve.join("\n"),

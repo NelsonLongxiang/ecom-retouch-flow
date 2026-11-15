@@ -8,6 +8,7 @@ import { exportDocument } from "../src/native/documents.ts";
 import { digest } from "../src/native/plugin/commands.mjs";
 import { cite, citationStatus, searchContext } from "../src/native/context.ts";
 import { exportProject, importProject } from "../src/native/exchange.ts";
+import { bytesHash } from "../src/domain/model.ts";
 
 const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
 test(
@@ -78,12 +79,16 @@ test(
       task: task.id,
       kind: "design",
       title: "变体套图方案",
-      content: "# 历史方案\n\n原木材质，旧版专用词。\n",
+      content:
+        "# 套图方案 v2（历史标题，不代表原生版本）\n\n原木材质，旧版专用词。\n",
       role: "agent-interpretation",
       source: "fixture",
       design_type: "decision",
     };
     const design = (await call("document", input, "register-design")).artifact;
+    const legacyFile = path.join(parent, "old-v2.md");
+    await fs.writeFile(legacyFile, design.content);
+    const legacyFileHash = bytesHash(await fs.readFile(legacyFile));
     assert.equal(
       (await call("document", input, "register-design")).artifact.id,
       design.id,
@@ -325,6 +330,50 @@ test(
       ])
     ).result.data;
     assert.equal(history.current_id, revised.id);
+    // Replay the redacted real case: a file named v2 contains native v1, while the current native version is now v2.
+    const originalNative = await c.call("show", { project: p, id: design.id });
+    assert.equal(originalNative.version, 1);
+    assert.equal(await fs.readFile(legacyFile, "utf8"), originalNative.content);
+    const archive = path.join(parent, "archive");
+    await fs.mkdir(archive);
+    const archivedFile = path.join(archive, path.basename(legacyFile));
+    await fs.rename(legacyFile, archivedFile);
+    assert.equal(bytesHash(await fs.readFile(archivedFile)), legacyFileHash);
+    const mapping = (
+      await call("document", {
+        project: p,
+        task: task.id,
+        kind: "spec",
+        title: "旧副本归档映射",
+        role: "reference",
+        source: "Issue #7 redacted business replay",
+        content: JSON.stringify({
+          schema: "retouch.export-archive-map/v1",
+          source_workspace: (await c.call("workspace-info", {})).id,
+          source_project: p,
+          source_artifact: design.id,
+          source_version: 1,
+          source_hash: originalNative.native_document.content_hash,
+          file_name: path.basename(legacyFile),
+          file_sha256: legacyFileHash,
+          status: "archived",
+        }),
+      })
+    ).artifact;
+    await assert.rejects(fs.access(legacyFile), { code: "ENOENT" });
+    const freshSession = await NativeClient.open(c.root),
+      handoff = await freshSession.call("brief", { project: p });
+    assert.equal(
+      handoff.documents.find((a: any) => a.title === design.title).artifact_id,
+      revised.id,
+    );
+    assert.equal(
+      JSON.parse(
+        (await freshSession.call("show", { project: p, id: mapping.id }))
+          .content,
+      ).source_version,
+      1,
+    );
     assert.deepEqual(
       history.versions.map((a: any) => [a.version, a.status]),
       [
@@ -522,6 +571,7 @@ test(
           stale_revision_rejected: true,
           citation_snapshot_pinned: true,
           export_authority: "copy-only",
+          legacy_archive_replay: "PASS",
           zip_history_restored: true,
           tasks_restored: restoredView.tasks.length,
           image_execution: "NOT_RUN",

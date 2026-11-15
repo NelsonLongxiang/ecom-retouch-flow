@@ -1,6 +1,11 @@
 import { NativeClient } from "./client.ts";
 import { digest, documentDescriptor } from "./plugin/commands.mjs";
 import { requireThat } from "../domain/model.ts";
+import {
+  effectiveRating,
+  ratingScale,
+  summarizeRatings,
+} from "./plugin/feedback.mjs";
 
 export async function registerWorkspace(
   owner: NativeClient,
@@ -133,8 +138,8 @@ export function analyze(
   const frequency = new Map<string, Set<string>>(),
     categories = new Map<string, Set<string>>(),
     pairs = new Map<string, Set<string>>(),
-    ratings = new Map<string, number[]>(),
-    projectRatings = new Map<string, number>();
+    ratings = new Map<string, any[]>(),
+    projectRatings = new Map<string, any>();
   let untagged = 0,
     unrated = 0;
   for (const item of projects) {
@@ -143,15 +148,16 @@ export function analyze(
       profile = view.profile.content,
       labels = [...new Set<string>(profile.tags)];
     if (!labels.length) untagged++;
-    if (profile.rating === null) unrated++;
-    if (profile.rating !== null) projectRatings.set(id, profile.rating);
+    const rating = effectiveRating(profile);
+    if (rating === null) unrated++;
+    if (rating !== null) projectRatings.set(id, rating);
     const dimensions = new Set<string>();
     for (const label of labels) {
       if (!frequency.has(label)) frequency.set(label, new Set());
       frequency.get(label)!.add(id);
-      if (profile.rating !== null) {
+      if (rating !== null) {
         if (!ratings.has(label)) ratings.set(label, []);
-        ratings.get(label)!.push(profile.rating);
+        ratings.get(label)!.push(rating);
       }
       const rule = method.rules.find((r: any) => r.tag === label),
         separator = label.indexOf(":");
@@ -184,16 +190,13 @@ export function analyze(
       unrated,
       rated: projects.length - unrated,
     },
+    rating_summary: summarizeRatings([...projectRatings.values()]),
     frequency: [...frequency]
       .map(([tag, ids]) => ({
         tag,
         projects: ids.size,
         project_ids: [...ids],
-        rated_projects: ratings.get(tag)?.length ?? 0,
-        mean_rating: ratings.get(tag)?.length
-          ? ratings.get(tag)!.reduce((a, b) => a + b, 0) /
-            ratings.get(tag)!.length
-          : null,
+        ...summarizeRatings(ratings.get(tag) ?? []),
       }))
       .sort(order),
     classification: [...categories]
@@ -205,10 +208,7 @@ export function analyze(
           tag,
           projects: ids.size,
           project_ids: [...ids],
-          rated_projects: scores.length,
-          mean_rating: scores.length
-            ? scores.reduce((a, b) => a + b, 0) / scores.length
-            : null,
+          ...summarizeRatings(scores),
         };
       })
       .sort(order),
@@ -264,6 +264,7 @@ export async function searchContext(owner: NativeClient, query: string) {
         content_hash: digest(a.content),
         tags: instance.view.profile.content.tags,
         rating: instance.view.profile.content.rating,
+        rating_details: effectiveRating(instance.view.profile.content),
         conclusion: instance.view.profile.content.conclusion,
         role: JSON.parse(a.meta || "{}").role ?? "reference",
         ...(a.native_document ??
@@ -271,10 +272,17 @@ export async function searchContext(owner: NativeClient, query: string) {
         source_fingerprint: instance.fingerprint,
       });
     }
-  hits.sort(
-    (a, b) =>
-      (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title),
-  );
+  hits.sort((a, b) => {
+    const ar = a.rating_details,
+      br = b.rating_details;
+    if (!ar || !br)
+      return Number(!!br) - Number(!!ar) || a.title.localeCompare(b.title);
+    return (
+      ratingScale(ar).localeCompare(ratingScale(br)) ||
+      br.score - ar.score ||
+      a.title.localeCompare(b.title)
+    );
+  });
   return {
     query,
     hits,

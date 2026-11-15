@@ -10,7 +10,8 @@ let entry = process.env.RETOUCH_YGL_ENTRY,
   unitOnly = false,
   legacy = false,
   apiOnly = false,
-  documentsOnly = false;
+  documentsOnly = false,
+  issuesOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -22,9 +23,18 @@ for (let index = 0; index < args.length; index++) {
   } else if (args[index] === "--suite" && args[index + 1] === "documents") {
     documentsOnly = true;
     index++;
+  } else if (args[index] === "--suite" && args[index + 1] === "issues") {
+    issuesOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
-if (Number(legacy) + Number(apiOnly) + Number(documentsOnly) > 1)
+if (
+  Number(legacy) +
+    Number(apiOnly) +
+    Number(documentsOnly) +
+    Number(issuesOnly) >
+  1
+)
   throw new Error("Choose one test suite.");
 if (!unitOnly && !entry)
   throw new Error(
@@ -45,7 +55,9 @@ const files = (await fs.readdir(path.join(root, "tests")))
           ? name.startsWith("native-api")
           : documentsOnly
             ? name.startsWith("native-documents")
-            : name.startsWith("native-")),
+            : issuesOnly
+              ? name.startsWith("native-issues")
+              : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -121,6 +133,13 @@ const documentsEvidence =
         .readFile(path.join(runRoot, "native-documents-evidence.json"), "utf8")
         .then(JSON.parse)
         .catch(() => null);
+const issuesEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(path.join(runRoot, "native-issues-evidence.json"), "utf8")
+        .then(JSON.parse)
+        .catch(() => null);
 const passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -135,9 +154,12 @@ const passed =
           ? apiEvidence?.verdict === "PASS"
           : documentsOnly
             ? documentsEvidence?.verdict === "PASS"
-            : wrapperEvidence?.verdict === "PASS" &&
-              apiEvidence?.verdict === "PASS" &&
-              documentsEvidence?.verdict === "PASS")));
+            : issuesOnly
+              ? issuesEvidence?.verdict === "PASS"
+              : wrapperEvidence?.verdict === "PASS" &&
+                apiEvidence?.verdict === "PASS" &&
+                documentsEvidence?.verdict === "PASS" &&
+                issuesEvidence?.verdict === "PASS")));
 const snapshots = [];
 async function snapshot(directory) {
   for (const item of await fs.readdir(path.join(root, directory), {
@@ -189,7 +211,10 @@ const report = {
     ? "API_FALLBACK"
     : documentsOnly
       ? "NATIVE_DOCUMENTS"
-      : "FULL",
+      : issuesOnly
+        ? "RETROSPECTIVE_ISSUES"
+        : "FULL",
+  native_issues_evidence: issuesEvidence,
   native_documents_evidence: documentsEvidence,
   native_api_evidence: apiEvidence,
   native_wrapper_evidence: wrapperEvidence,
@@ -221,9 +246,11 @@ const output = path.join(
       ? "api-tests.json"
       : documentsOnly
         ? "documents-tests.json"
-        : unitOnly
-          ? "unit-tests.json"
-          : "native-wrapper-tests.json",
+        : issuesOnly
+          ? "issues-tests.json"
+          : unitOnly
+            ? "unit-tests.json"
+            : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);

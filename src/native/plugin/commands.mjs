@@ -4,6 +4,13 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { apiProfile, apiPrompt } from "./api-contract.mjs";
+import { rawRating, effectiveRating } from "./feedback.mjs";
+import { productFacts, factCheck, renderFacts } from "./product-facts.mjs";
+import {
+  requestedDimensions,
+  dimensionView,
+  freezeDimension,
+} from "./media-diagnostics.mjs";
 
 export const SCHEMA = "retouch.native/v1";
 export const stable = (value) =>
@@ -438,6 +445,131 @@ async function updateTask(mgr, a, meta, expected) {
   ]);
   return { ...a, meta: stable(meta) };
 }
+export function pendingExecution(a, artifacts) {
+  const m = json(a.meta);
+  if (["unknown", "dispatched"].includes(m.status)) return true;
+  if (m.status !== "received") return false;
+  if (m.role !== "external" || !Array.isArray(m.outputs) || !m.outputs.length)
+    return true;
+  return !m.outputs.every((id) =>
+    artifacts.some((x) => {
+      const im = json(x.meta);
+      return (
+        x.id === id &&
+        x.kind === "media" &&
+        x.project_id === a.project_id &&
+        im.task_id === m.task_id &&
+        im.goal_id === m.goal_id &&
+        ["model-output", "postprocess", "candidate"].includes(im.role) &&
+        /^[a-f0-9]{64}$/.test(im.sha256)
+      );
+    }),
+  );
+}
+function currentImageDelivery(t, artifacts) {
+  const tr = json(t.meta).retouch;
+  return artifacts.some((x) => {
+    const m = json(x.meta);
+    if (m.task_id !== t.id || m.status !== "completed") return false;
+    if (x.kind === "execution")
+      return (
+        m.role === "workflow-run" &&
+        m.plan_id === tr.plan_id &&
+        m.goal_id === tr.goal_id &&
+        json(x.content).requirements_hash === digest(tr.requirements)
+      );
+    if (x.kind !== "delivery") return false;
+    const image = artifacts.find((a) => a.id === m.media_id),
+      im = image && json(image.meta);
+    return (
+      im &&
+      im.task_id === t.id &&
+      im.goal_id === tr.goal_id &&
+      m.sha256 === im.sha256 &&
+      /^[a-f0-9]{64}$/.test(m.manifest_sha256) &&
+      (!im.requirements_hash ||
+        im.requirements_hash === digest(tr.requirements)) &&
+      artifacts.some((r) => {
+        const rm = json(r.meta);
+        return (
+          r.kind === "review" &&
+          rm.media_id === image.id &&
+          rm.sha256 === im.sha256 &&
+          rm.accepted === true &&
+          rm.source === "user" &&
+          rm.verdict === "PASS"
+        );
+      })
+    );
+  });
+}
+function businessHealth(artifacts, tasks) {
+  const findings = [];
+  for (const a of artifacts) {
+    const m = json(a.meta);
+    if (
+      a.kind === "execution" &&
+      m.status === "received" &&
+      pendingExecution(a, artifacts)
+    )
+      findings.push({
+        code:
+          m.role === "external"
+            ? "EXTERNAL_RESULT_INCOMPLETE"
+            : "LOCAL_RECOVERY_PENDING",
+        severity: m.role === "external" ? "error" : "info",
+        artifact_id: a.id,
+        task_id: m.task_id,
+      });
+    if (a.kind === "delivery" && m.status === "preparing")
+      findings.push({
+        code: "DELIVERY_PREPARING",
+        severity: "info",
+        artifact_id: a.id,
+        task_id: m.task_id,
+        next_action:
+          "replay original delivery or delivery abandon after inspection",
+      });
+  }
+  for (const t of tasks) {
+    if (t.meta.retouch?.kind !== "image") continue;
+    const delivered = currentImageDelivery(
+      { ...t, meta: stable(t.meta) },
+      artifacts,
+    );
+    if (t.meta.status === "done" && !delivered)
+      findings.push({
+        code: "CLOSED_WITHOUT_CURRENT_DELIVERY",
+        severity: "error",
+        task_id: t.id,
+      });
+    if (
+      t.meta.status === "done" &&
+      artifacts.some(
+        (a) =>
+          a.kind === "execution" &&
+          json(a.meta).task_id === t.id &&
+          pendingExecution(a, artifacts),
+      )
+    )
+      findings.push({
+        code: "CLOSED_WITH_PENDING_EXECUTION",
+        severity: "error",
+        task_id: t.id,
+      });
+    if (delivered && t.meta.status !== "done")
+      findings.push({
+        code: "TASK_READY_TO_CLOSE",
+        severity: "info",
+        task_id: t.id,
+        next_action: "task close after checking remaining pending executions",
+      });
+  }
+  return {
+    status: findings.some((f) => f.severity === "error") ? "FAIL" : "PASS",
+    findings,
+  };
+}
 async function brief(mgr, p) {
   const node = await rootNode(mgr, p),
     current = await profile(mgr, p, node);
@@ -548,9 +680,26 @@ async function brief(mgr, p) {
       .filter((a) => documentKinds.includes(a.kind))
       .map((a) => documentDescriptor(a, artifacts))
       .filter((a) => a.status !== "superseded"),
+    business_health: businessHealth(artifacts, tasks),
+    dimension_diagnostics: dimensionView(artifacts),
+    executor_profiles: artifacts
+      .filter((a) => a.kind === "executor-profile")
+      .map((a) => ({
+        id: a.id,
+        version: a.version,
+        created: a.created,
+        profile: json(a.content).profile,
+        credential_check: "NOT_RUN",
+      })),
+    executor_observations: artifacts
+      .filter((a) => a.kind === "executor-observation")
+      .sort((a, b) => b.created.localeCompare(a.created))
+      .map((a) => ({ id: a.id, observed_at: a.created, ...json(a.content) })),
     relations,
     reminders: [
-      feedback.rating === null ? "可补充项目评分（1–5 分）" : "",
+      effectiveRating(feedback) === null
+        ? "可补充项目评分，保留用户原始量表"
+        : "",
       !feedback.conclusion ? "可补充用户结语" : "",
       feedback.completion === null ? "可决定继续、停止或标记完结" : "",
     ].filter(Boolean),
@@ -633,6 +782,8 @@ export async function run(env, action, rest, args) {
       "snapshot",
       "show",
       "document-history",
+      "business-check",
+      "dimensions",
       "workspace-info",
       "restore-preview",
       "receipt",
@@ -811,6 +962,17 @@ export async function run(env, action, rest, args) {
       } else {
         const p = await project(mgr, text(b.project, "project"));
         if (action === "brief") return brief(mgr, p);
+        if (action === "business-check")
+          return (await brief(mgr, p)).business_health;
+        if (action === "dimensions") {
+          if (b.id) await artifact(mgr, b.id, p, "media");
+          return dimensionView(
+            await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [
+              p.id,
+            ]),
+            b.id,
+          );
+        }
         if (["task-view", "task-next", "task-list"].includes(action)) {
           const view = await brief(mgr, p);
           if (action === "task-list") return { tasks: view.tasks };
@@ -908,7 +1070,9 @@ export async function run(env, action, rest, args) {
         }
         check(
           p.status === "active" ||
-            ["project-feedback", "project-reopen"].includes(action),
+            ["project-feedback", "project-reopen", "delivery-abandon"].includes(
+              action,
+            ),
           "PROJECT_CLOSED",
           "项目已完结；新执行前须明确重新打开",
           1,
@@ -935,12 +1099,17 @@ export async function run(env, action, rest, args) {
               "FEEDBACK_SOURCE",
               "评分与结语必须来自用户，不能代填",
             );
+            const rating_record =
+              b.rating && typeof b.rating === "object"
+                ? rawRating(b.rating)
+                : null;
             check(
               b.rating === undefined ||
                 b.rating === null ||
+                rating_record ||
                 (Number.isInteger(b.rating) && b.rating >= 1 && b.rating <= 5),
               "RATING",
-              "评分须为 null 或 1–5 整数",
+              "评分须为原始量表对象、历史 1–5 整数或 null",
             );
             check(
               b.conclusion === undefined || typeof b.conclusion === "string",
@@ -949,7 +1118,9 @@ export async function run(env, action, rest, args) {
             );
             text(b.source, "反馈来源");
             patch = {
-              ...(b.rating !== undefined ? { rating: b.rating } : {}),
+              ...(b.rating !== undefined
+                ? { rating: rating_record ? null : b.rating, rating_record }
+                : {}),
               ...(b.conclusion !== undefined
                 ? { conclusion: b.conclusion }
                 : {}),
@@ -1022,6 +1193,13 @@ export async function run(env, action, rest, args) {
           text(b.expected_output, "交付物");
           text(b.done_when, "完成条件");
           check(
+            ["unspecified", "concept", "product-accurate"].includes(
+              b.purpose ?? "unspecified",
+            ),
+            "TASK_PURPOSE",
+            "须明确合法的任务用途",
+          );
+          check(
             ["image", "design"].includes(b.kind),
             "TASK_KIND",
             "任务类型须为 image/design",
@@ -1040,6 +1218,7 @@ export async function run(env, action, rest, args) {
               expected_output: b.expected_output,
               done_when: b.done_when,
               kind: b.kind,
+              purpose: b.purpose ?? "unspecified",
               dependencies: deps,
               requirements: [],
               plan_id: null,
@@ -1166,11 +1345,18 @@ async function currentTask(mgr, p, taskId) {
   return t;
 }
 async function noUnknown(mgr, p, taskId) {
-  const ex = await one(
-    mgr,
-    "SELECT id,meta FROM artifacts WHERE project_id=? AND kind='execution' AND json_extract(meta,'$.task_id')=? AND json_extract(meta,'$.status') IN ('unknown','dispatched','received')",
+  const rows = await mgr.query(
+    "SELECT * FROM artifacts WHERE project_id=? AND kind IN ('execution','media') AND json_extract(meta,'$.task_id')=?",
     [p.id, taskId],
   );
+  const ex = rows
+    .filter((a) => a.kind === "execution")
+    .sort(
+      (a, b) =>
+        Number(json(a.meta).status === "received") -
+        Number(json(b.meta).status === "received"),
+    )
+    .find((a) => pendingExecution(a, rows));
   check(
     !ex,
     ex && json(ex.meta).status === "received"
@@ -1220,6 +1406,51 @@ async function updateExecution(mgr, a, meta, expected) {
   return { ...a, meta: stable(meta) };
 }
 async function workflow({ mgr, api, p, node, b, action }) {
+  if (action === "executor-observe") {
+    check(
+      ["available", "unavailable", "unknown"].includes(b.state),
+      "HOST_CAPABILITY",
+      "内置工具状态须为 available/unavailable/unknown",
+    );
+    const a = await append(
+      mgr,
+      p,
+      "executor-observation",
+      "Host image capability",
+      {
+        state: b.state,
+        source: text(b.source, "实际宿主能力观察来源"),
+        not_execution_authorization: true,
+      },
+      { schema: SCHEMA, role: "host-capability" },
+    );
+    await relation(mgr, "node", node.id, "artifact", a.id, "observed-by");
+    return { observation: a };
+  }
+  if (action === "facts-register") {
+    await requireNewDocument(mgr, p, "spec", "Product facts");
+    const artifacts = await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=?",
+      [p.id],
+    );
+    const content = productFacts(b.facts, artifacts);
+    const a = await append(mgr, p, "spec", "Product facts", content, {
+      schema: SCHEMA,
+      role: "product-facts",
+      source: text(b.source, "事实记录来源"),
+    });
+    await relation(mgr, "node", node.id, "artifact", a.id, "specified-by");
+    for (const f of content.fields)
+      await relation(
+        mgr,
+        "artifact",
+        a.id,
+        "artifact",
+        f.source.artifact_id,
+        "derived-from",
+      );
+    return { artifact: a, native_document: documentDescriptor(a, [a]) };
+  }
   if (action === "executor-register") {
     const config = apiProfile(b.profile);
     text(b.title, "执行配置名称");
@@ -1340,7 +1571,19 @@ async function workflow({ mgr, api, p, node, b, action }) {
     text(b.reason, "修订原因");
     text(b.source, "修订来源");
     let content;
-    if (meta.role === "goal") {
+    if (meta.role === "product-facts") {
+      check(
+        b.role === undefined &&
+          b.design_type === undefined &&
+          b.confirmation_source === undefined,
+        "DOCUMENT_FIELDS",
+        "商品事实角色不可改写",
+      );
+      content = productFacts(
+        b.content,
+        await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [p.id]),
+      );
+    } else if (meta.role === "goal") {
       check(
         b.content &&
           typeof b.content === "object" &&
@@ -1377,6 +1620,16 @@ async function workflow({ mgr, api, p, node, b, action }) {
       ...(b.design_type !== undefined ? { design_type: b.design_type } : {}),
     };
     const a = await append(mgr, p, old.kind, old.title, content, nextMeta);
+    if (meta.role === "product-facts")
+      for (const f of content.fields)
+        await relation(
+          mgr,
+          "artifact",
+          a.id,
+          "artifact",
+          f.source.artifact_id,
+          "derived-from",
+        );
     await relation(mgr, "artifact", old.id, "artifact", a.id, "superseded-by");
     // Carry document ownership forward. Goal bindings and reference edges stay on the exact version.
     const attachments = await mgr.query(
@@ -1395,10 +1648,29 @@ async function workflow({ mgr, api, p, node, b, action }) {
       [p.id],
     );
     const seriesIds = new Set(rows.map((x) => x.id));
+    const changedKeys =
+      meta.role === "product-facts"
+        ? new Set(
+            [...json(old.content).fields, ...content.fields]
+              .filter(
+                (f) =>
+                  digest(
+                    json(old.content).fields.find((x) => x.key === f.key) ??
+                      null,
+                  ) !==
+                  digest(content.fields.find((x) => x.key === f.key) ?? null),
+              )
+              .map((f) => f.key),
+          )
+        : new Set();
     const affected = tasks
       .filter(
         (t) =>
           t.id === meta.task_id ||
+          (meta.role === "product-facts" &&
+            (json(t.meta).retouch?.fact_keys ?? []).some((k) =>
+              changedKeys.has(k),
+            )) ||
           (meta.role !== "goal" &&
             attachments.some(
               (r) =>
@@ -1601,6 +1873,12 @@ async function workflow({ mgr, api, p, node, b, action }) {
       sha256: m.sha256,
       directory: text(b.directory, "交付目录"),
       status: "preparing",
+      dimension_provenance: freezeDimension(
+        dimensionView(
+          await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [p.id]),
+          a.id,
+        ).images[0],
+      ),
     });
     await relation(
       mgr,
@@ -1629,8 +1907,34 @@ async function workflow({ mgr, api, p, node, b, action }) {
     ]);
     return { delivery: { ...a, meta: stable(m) } };
   }
+  if (action === "delivery-abandon") {
+    const a = await artifact(mgr, b.id, p, "delivery"),
+      m = json(a.meta);
+    check(
+      m.status === "preparing" && b.publication_inspected === true,
+      "DELIVERY_STATE",
+      "仅可显式处置已核对文件的 preparing 交付",
+      1,
+    );
+    m.status = "abandoned";
+    m.disposition = text(b.statement, "处置依据");
+    m.disposition_at = timestamp();
+    await mgr.query("UPDATE artifacts SET meta=?,updated=? WHERE id=?", [
+      stable(m),
+      timestamp(),
+      a.id,
+    ]);
+    return { delivery: { ...a, meta: stable(m) } };
+  }
   if (action === "execution-record") {
     const t = await task(mgr, p, b.task);
+    check(
+      b.model === undefined ||
+        (typeof b.model === "string" &&
+          /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(b.model)),
+      "API_MODEL",
+      "外部实际模型名称无效",
+    );
     check(
       ["unknown", "received", "failed", "planned"].includes(b.status),
       "EXECUTION_STATUS",
@@ -1639,6 +1943,12 @@ async function workflow({ mgr, api, p, node, b, action }) {
     const inputs = b.inputs ?? [],
       outputs = b.outputs ?? [];
     for (const id of [...inputs, ...outputs]) await media(mgr, p, id);
+    for (const id of outputs)
+      check(
+        json((await media(mgr, p, id)).meta).task_id === t.a.id,
+        "OUTPUT_BINDING",
+        "外部结果须属于该任务",
+      );
     check(
       b.status !== "received" || outputs.length > 0,
       "OUTPUT_REQUIRED",
@@ -1660,7 +1970,9 @@ async function workflow({ mgr, api, p, node, b, action }) {
         inputs,
         outputs,
         external_request: b.external_request ?? null,
+        requested_dimensions: requestedDimensions(b.requested_dimensions),
         source: text(b.source, "来源"),
+        model: b.model ?? null,
       },
     );
     await relation(mgr, "task", t.a.id, "artifact", a.id, "executed-by");
@@ -1691,6 +2003,12 @@ async function workflow({ mgr, api, p, node, b, action }) {
     );
     const outputs = b.outputs ?? [];
     for (const id of outputs) await media(mgr, p, id);
+    for (const id of outputs)
+      check(
+        json((await media(mgr, p, id)).meta).task_id === meta.task_id,
+        "OUTPUT_BINDING",
+        "外部结果须属于该任务",
+      );
     check(
       b.status !== "received" || outputs.length > 0,
       "OUTPUT_REQUIRED",
@@ -1765,9 +2083,57 @@ async function workflow({ mgr, api, p, node, b, action }) {
     const active = meta.retouch.requirements.filter(
       (g) => g.text.trim() && !g.disabled,
     );
+    const facts = await one(
+      mgr,
+      "SELECT * FROM artifacts WHERE project_id=? AND kind='spec' AND json_extract(meta,'$.role')='product-facts' ORDER BY version DESC LIMIT 1",
+      [p.id],
+    );
+    const purpose = b.purpose ?? meta.retouch.purpose ?? "unspecified";
+    check(
+      !facts || purpose !== "unspecified",
+      "TASK_PURPOSE",
+      "已有商品事实清单时须明确概念提案或实物准确图用途",
+    );
+    const factsCheck = factCheck(
+      facts
+        ? productFacts(
+            json(facts.content),
+            await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [
+              p.id,
+            ]),
+          )
+        : null,
+      steps,
+      purpose,
+    );
+    check(
+      factsCheck.status !== "BLOCKED",
+      "FACTS_INCOMPLETE",
+      "当前实物准确任务缺少必要字段：" + factsCheck.blocking.join(", "),
+      1,
+    );
+    for (const step of steps) {
+      step.fact_constraints = factsCheck.step_checks.find(
+        (c) => c.step_id === step.id,
+      ).constraints;
+      step.bound_facts = renderFacts(
+        factsCheck.step_checks.find((c) => c.step_id === step.id),
+      );
+    }
     const body = {
       schema: SCHEMA,
       role: "workflow-plan",
+      purpose,
+      facts_id: facts?.id ?? null,
+      facts_version: facts?.version ?? null,
+      facts_hash: facts ? digest(facts.content) : null,
+      fact_check: factsCheck,
+      delivery_canvas: b.delivery_canvas
+        ? requestedDimensions({
+            ...b.delivery_canvas,
+            scope: "delivery-target",
+          })
+        : null,
       task_id: a.id,
       goal_id: meta.retouch.goal_id,
       goal_version: meta.retouch.goal_version,
@@ -1838,6 +2204,9 @@ async function workflow({ mgr, api, p, node, b, action }) {
     }
     await refreshGraph(mgr, api, node.tree_id);
     meta.retouch.plan_id = plan.id;
+    meta.retouch.purpose = purpose;
+    meta.retouch.facts_id = facts?.id ?? null;
+    meta.retouch.fact_keys = factsCheck.required_keys;
     const updated = await updateTask(mgr, a, meta, b.expected_revision);
     await relation(mgr, "task", a.id, "artifact", plan.id, "specified-by");
     if (body.fallback)
@@ -2282,6 +2651,9 @@ async function workflow({ mgr, api, p, node, b, action }) {
           execution_id: a.id,
           plan_id: meta.plan_id,
           step,
+          purpose: plan.purpose ?? "unspecified",
+          fact_check: plan.fact_check ?? null,
+          facts_id: plan.facts_id ?? null,
           input: { id: input.id, ...json(input.meta) },
           references: references.map((r) => ({
             id: r.artifact.id,
@@ -2590,6 +2962,12 @@ async function workflow({ mgr, api, p, node, b, action }) {
       );
       meta.status = "delivering";
       meta.delivery_directory = b.directory;
+      meta.delivery_dimensions ??= freezeDimension(
+        dimensionView(
+          await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [p.id]),
+          meta.accepted_id,
+        ).images[0],
+      );
     } else if (action === "run-delivered") {
       check(
         meta.status === "delivering" &&
@@ -2615,28 +2993,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
     const linked = artifacts.filter((x) => json(x.meta).task_id === a.id);
     if (meta.retouch.kind === "image")
       check(
-        linked.some((x) => {
-          const m = json(x.meta);
-          if (m.status !== "completed") return false;
-          if (x.kind === "execution")
-            return (
-              m.plan_id === meta.retouch.plan_id &&
-              m.goal_id === meta.retouch.goal_id &&
-              json(x.content).requirements_hash ===
-                digest(meta.retouch.requirements)
-            );
-          if (x.kind === "delivery") {
-            const image = artifacts.find((a) => a.id === m.media_id),
-              im = image && json(image.meta);
-            return (
-              im &&
-              im.goal_id === meta.retouch.goal_id &&
-              (!im.requirements_hash ||
-                im.requirements_hash === digest(meta.retouch.requirements))
-            );
-          }
-          return false;
-        }),
+        currentImageDelivery({ ...a, meta: stable(meta) }, artifacts),
         "TASK_INCOMPLETE",
         "图像任务尚无已接受并交付的真实运行",
         1,
@@ -2843,6 +3200,33 @@ export function validateSnapshot(s) {
   );
   for (const a of t.artifacts) {
     const m = json(a.meta);
+    if (a.kind === "profile" && json(a.content).rating_record)
+      rawRating(json(a.content).rating_record);
+    if (m.role === "product-facts") productFacts(json(a.content), t.artifacts);
+    if (m.requested_dimensions) requestedDimensions(m.requested_dimensions);
+    if (m.role === "workflow-plan" && json(a.content).facts_id) {
+      const plan = json(a.content),
+        facts = t.artifacts.find(
+          (x) =>
+            x.id === plan.facts_id && json(x.meta).role === "product-facts",
+        );
+      check(
+        facts && plan.facts_hash === digest(facts.content),
+        "FACTS_BINDING",
+        "计划商品事实快照不完整",
+      );
+      const assessment = factCheck(
+        json(facts.content),
+        plan.steps,
+        plan.purpose,
+      );
+      check(
+        !assessment.blocking.length &&
+          stable(assessment) === stable(plan.fact_check),
+        "FACTS_BINDING",
+        "计划商品事实检查不匹配",
+      );
+    }
     const apiRef = (id) =>
       t.artifacts.find((x) => x.id === id && x.kind === "executor-profile");
     if (a.kind === "executor-profile") {
@@ -3037,6 +3421,17 @@ async function restore(mgr, api, b) {
         return v;
       }
       if (Array.isArray(v)) return v.map(remap);
+      if (
+        v &&
+        typeof v === "object" &&
+        v.schema === "retouch.product-facts/v1"
+      ) {
+        const cloned = structuredClone(v);
+        for (const f of cloned.fields)
+          f.source.artifact_id =
+            ids.get(f.source.artifact_id) ?? f.source.artifact_id;
+        return cloned;
+      }
       if (v && typeof v === "object")
         return Object.fromEntries(
           Object.entries(v).map(([k, x]) => [
@@ -3056,6 +3451,10 @@ async function restore(mgr, api, b) {
               "api_operation",
               "provider_request_id",
               "external_request",
+              "rating_record",
+              "quote",
+              "original_text",
+              "source_ref",
             ].includes(k)
               ? structuredClone(x)
               : remap(x),
@@ -3064,6 +3463,31 @@ async function restore(mgr, api, b) {
       return v;
     }
     t = remap(t);
+    for (const a of t.artifacts) {
+      if (
+        !["spec", "execution"].includes(a.kind) ||
+        !["workflow-plan", "workflow-run"].includes(json(a.meta).role)
+      )
+        continue;
+      const plan = json(a.content);
+      if (plan.facts_id) {
+        const facts = t.artifacts.find((x) => x.id === plan.facts_id);
+        plan.facts_hash = digest(facts.content);
+        plan.fact_check = factCheck(
+          json(facts.content),
+          plan.steps,
+          plan.purpose,
+        );
+        for (const step of plan.steps) {
+          const bound = plan.fact_check.step_checks.find(
+            (c) => c.step_id === step.id,
+          );
+          step.fact_constraints = bound.constraints;
+          step.bound_facts = renderFacts(bound);
+        }
+        a.content = stable(plan);
+      }
+    }
     t.projects[0].name = b.name;
     for (const tree of t.trees) tree.name = "retouch-" + tree.id;
     for (const n of t.nodes)

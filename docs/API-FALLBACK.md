@@ -4,7 +4,7 @@
 
 本轮实现一个明确的兼容协议：`POST <api-base>/images/edits`，multipart，显式 model，`n=1`，PNG 输入／可选区域 mask／用途明确的参考图，返回单张 base64 图片。不自动改模型，不下载响应 URL，不跟随重定向，不自动重试。
 
-执行配置存为 ygl 原生 executor-profile 工件：协议、环境变量名、明确模型、质量／尺寸、超时、响应上限与 endpoint 指纹。实际 API base 和密钥仅在调用进程的环境中读取；不写文件、argv、原生 payload、日志或 ZIP。导入配置不是授权，目标 home 须有适用的新本地授权。
+执行配置存为 ygl 原生 executor-profile 工件：协议、受保护配置来源、明确模型、质量／尺寸、超时、响应上限与 endpoint 指纹。来源为显式环境变量，或用户已授权的当前 Codex 模型配置；base/key 只在调用进程内读取，不复制到文件、argv、原生 payload、日志或 ZIP。导入配置不是授权，目标 home 须有适用的新本地授权。
 
 计划冻结 fallback profile 的原生身份／版本/hash。授权独立记录具体 profile、endpoint 指纹、最大请求数、费用与外发确认原文。每个步骤先原子写入 ygl 调用意图，然后最多发送一次请求；同键重放、并发调用、断开或超时不会再次提交。未知请求须先对账。
 
@@ -13,6 +13,8 @@
 已收到图片但后续写入／合成未完成时，恢复只读取已保存的内容寻址文件并补写原生记录，不再次访问图像 API。HTTP 拒绝、未知网络结果和已收到但不支持的响应分别说明；响应正文／认证头不写诊断。
 
 验收以本地 HTTP 模拟服务和真实 ygl 原生工作区为主：成功回接、保持区、单次调用、重放、并发、超时、重定向、不支持的 URL 响应、凭证隔离、恢复与历史授权。真实收费 API 另行 opt-in，不以模拟服务通过宣称真实模型质量。
+
+2026-11-15 已在用户明确授权下，用当前选定服务与合成素材完成一次 `gpt-image-2` 原生调用；size=auto，实际响应1254×1254 PNG，原生图片／回执及新会话接手核验通过，零自动重试。服务通道通过与商品图质量、用户接受分别记录，完整范围见 [验证摘要](verification/README.md)。这次授权不延续为后续自动付费探测。
 
 ## 配置与授权
 
@@ -35,7 +37,33 @@
 }
 ```
 
-替换模型占位符，不自动替用户选用或切换模型。`executor check <profile-id>` 仅检查变量、endpoint 指纹及本地配置条件，不验证认证或模型服务。HTTP 仅可显式 `allow_loopback_http:true` 用于本机模拟服务，普通调用要求 HTTPS。
+替换模型占位符，不自动替用户选用或切换模型。`executor check <profile-id>` 仅检查配置、凭证存在和 endpoint 指纹，不验证认证或模型服务。当前适配器可请求 size 为 auto、1024x1024、1536x1024、1024x1536；这是适配器的输入契约，不是对所有服务／模型的尺寸能力结论。实际返回以解码字节为准。
+
+## 当前 Codex 配置与分层诊断
+
+用户明确授权沿用当前配置后，可在 profile 中用以下来源代替手工注入变量；模型仍显式填写图像模型，不从 Codex 的语言模型字段猜测：
+
+```json
+{"configuration_source":{"kind":"codex-model","authorized":true,"authorization_ref":"<实际用户授权来源>"}}
+```
+
+只读取 CODEX_HOME 指定或当前用户 `.codex` 的 config.toml，选择当前 model_provider；仅使用该服务声明的 env_key 或 experimental_bearer_token。该服务明确 requires_openai_auth 时可读取同目录 auth.json 的专用 OPENAI_API_KEY，不复用 ChatGPT 登录/OAuth tokens，不扫描其他工具目录。TOML 由固定版本解析器读取，解析错误不回显配置行或凭证。
+
+注册时绑定本地 workspace 与当前 provider，恢复到另一个 home 后读取授权失效。新本地登记须有真实 configuration_authorization_ref；切换 provider 或 endpoint 明确报告漂移，不自动替换服务。正常换会话无需用户重新粘贴密钥。
+
+`executor diagnose --project <id> --file <候选配置.json>` 无需先登记：分别报告配置读取授权／存在性、凭证是否设置、适配器协议和本地准备状态。未授权不读文件；不支持的协议在配置读取前拒绝。`executor check` 检查已登记配置。ready 保留兼容，但 readiness_scope 明确是 LOCAL_CONFIGURATION_ONLY；network 始终 NOT_RUN。最近图像结果、最近绑定调用、未绑定历史结果分别显示时间、来源和状态，历史成功不证明当前认证。模型列表成功也不作为图像验收。
+
+宿主实际工具清单用 `executor observe --file` 记录 `{"state":"unavailable","source":"<实际工具清单观察来源>"}`，状态也可 available/unknown。带时间的观察及 profile 摘要进入 project brief/context build；它是观察记录，不是调用授权或永久可用保证。
+
+## 显式私网 HTTP 兼容通道
+
+HTTPS 是默认。测试的 allow_loopback_http 只开放明确本机地址。现有私网 HTTP 服务可单独声明：
+
+```json
+{"private_http":{"enabled":true,"confirmation":"<用户对当前私网 HTTP 传输的实际确认来源>"}}
+```
+
+该兼容仅接受 RFC1918 IPv4 或 ULA IPv6 字面地址；不接受公共 HTTP 或未经解析约束的域名，不伪装 localhost、不代理、不关闭证书验证。HTTP 会明文传输所选素材与认证信息，使用者须明确接受当前服务的传输条件。实际调用仍要冻结 profile/version/hash/endpoint、取得适用费用与素材外发授权并限定请求次数；此选项不会自动探测或重发。私网配置与受保护来源分别声明 ZIP 所需能力，旧工具不能静默忽略。
 
 在完整 plan submit 文件中添加 `"fallback":{"profile_id":"<原生 executor-profile id>"}`。每步可声明 `references:[{"media_id":"<原生 media id>","purpose":"仅参考木纹"}]`，最多 15 张参考加 1 张编辑目标；规范化 PNG 每张上限 32 MiB。用途进入冻结计划及实际提示词，不把参考商品升级为当前商品事实。
 
@@ -70,6 +98,6 @@ execute-api 只处理未派发的当前步骤，先保存原生编译提示词�
 
 ## 交换与验证
 
-配置、提示词、图像、意图和回执随原生 ZIP 携带，声明 retouch-api-fallback/v1；旧工具拒绝不理解的能力。凭证和环境不入包，源授权不激活目标 home；新请求需适用的新本地授权和环境绑定。
+配置、提示词、图像、意图和回执随原生 ZIP 携带，声明 retouch-api-fallback/v1；私网 HTTP 与 Codex 配置来源额外声明 retouch-private-http/v1 和 retouch-configuration-source/v1。旧工具拒绝不理解的能力。凭证和环境不入包，源授权不激活目标 home；新请求需适用的新本地授权和配置绑定。
 
 定向检查：`node scripts/test.mjs --suite api --ygl-entry <实际入口>`。完整回归不加 --suite，要求原生主流程及本机 API 模拟证据同时通过。该协议是一个明确的 multipart/base64 子集，不代表所有兼容中转／模型均支持相同字段；真实图像服务和费用另行验收。

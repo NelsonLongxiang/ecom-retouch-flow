@@ -100,12 +100,18 @@ node src/cli.ts artifact export <确切版本ID> --workspace <业务目录> --pr
 
 导出可读 Markdown 的元数据含 workspace/project/artifact 身份、版本、角色、来源、正文 hash 和导出时间。content_hash 为规范 JSON 字符串 `digest(content)`，与整份 Markdown 的文件 SHA-256 分开。JSON 工件以代码块呈现。导出不产生正式工件，不回写原生内容，不覆盖已有目标；副本目录不强制为 docs。用户展示和接手优先给原生 ID／版本；源码仓库 docs 仍用于产品规范，业务正文中的 v1/v2 标记仅作历史文字。
 
+## 试点问题补充入口
+
+`project check <id>` 读业务状态一致性；brief 同时有 business_health、executor_profiles、宿主观察与 dimension_diagnostics。`asset dimensions <id>` 查看请求、原生响应和后处理尺寸。`delivery abandon <id>` 显式处置已核对的 preparing 交付，不删除文件。`facts register` 建字段级原生 spec，artifact revise 修订；plan 的 purpose、fact_keys 和 safe_strategy 限定任务用途和证据边界。
+
+反馈新增原始量表对象，8/10 的 score、scale_max、原文和来源直接保留；旧 1–5 整数仍兼容。详细 JSON、归档回放与错误处置见 [试点验收](ISSUE-ACCEPTANCE.md)。配置复用使用 executor diagnose/check 和显式 configuration_source，见 [API 协议](API-FALLBACK.md)。
+
 项目维护命令：
 
 | 命令 | JSON 文件 |
 | --- | --- |
 | project tags | tags 数组，source 为 user 或 authorized-agent |
-| project feedback | 可空 rating（1–5），conclusion 用户原文，source:user |
+| project feedback | rating 原始量表对象／旧1–5整数／null，conclusion 用户原文，source:user |
 | project close | reason:achieved/stopped/remaining，statement 用户决定原文 |
 | project reopen | 不需文件；记录新 profile 版本，授权仍单独判断 |
 
@@ -123,6 +129,6 @@ node src/cli.ts artifact export <确切版本ID> --workspace <业务目录> --pr
 
 `context search --query <关键词>` 搜索全部登记工作区的原生 design/spec。`context cite --project <目标> --task <可选任务> --file <引用.json> --request-id <key>` 保存 workspace_id/project_id/artifact_id/version/content_hash/purpose/conditions，正文由实际来源读取并保全，不信任调用方粘贴替代。引用保持精确版本，context build 报告 stale/unavailable/conflict。
 
-ZIP、旧版迁移和恢复示例见 [项目上下文](PROJECT-CONTEXT.md)。`index check/rebuild --project <id>` 核对文件和原生图，不调用模型。`doctor` 输出原生健康检查，各检查结论须单独阅读。
+ZIP、旧版迁移和恢复示例见 [项目上下文](PROJECT-CONTEXT.md)。`index check/rebuild --project <id>` 核对文件、原生图及业务健康；图索引正确但业务状态矛盾时返回 BUSINESS_STATE，详情可用 project check 查看，不调用模型。`doctor` 输出原生健康检查，各检查结论须单独阅读。
 
 显式 API fallback 使用 executor register/check、run execute-api、run recover-api、run api-result 和 run api-reconcile。配置、费用／外发确认、请求次数限制及尺寸恢复示例见 [API fallback](API-FALLBACK.md)。

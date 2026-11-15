@@ -22,9 +22,11 @@
 
 - 复用 Agent 宿主和 ygl 原生 CLI。领域状态、任务、工件、关系和索引由 ygl 承载；retouch 负责电商 profile、命令编排、图像处理与上下文交换。原生缺口必须明确并通过原生 CLI／插件扩展解决，不能偷偷增加独立 ledger/catalog 或用 db sql 建影子业务系统。正常运行不得写旧独立账本，历史读取只用于明确的迁移／复核路径。
 - 默认图像执行方式为 host：CLI 生成绑定输入的任务单，宿主用其实际可用的图像工具执行，再回接真实结果文件。离线提供商仅用于演示／测试；API fallback 需要明确选择与配置，不能因宿主工具缺失自动转为收费 API。
-- API fallback 通过 `src/native/api.ts` 和原生插件的执行配置／意图／回执工作，不自建提供商账本。仅从显式环境变量读取 base/key，不记录凭证；默认不跟随重定向、不下载 URL 响应、不自动重试。已保存响应的恢复只做本地处理。模拟 API 验收与真实付费 API／商品质量分别报告；定向检查用 `scripts/test.mjs --suite api`。
+- API fallback 通过 `src/native/api.ts` 和原生插件的执行配置／意图／回执工作，不自建提供商账本。从显式环境变量，或经用户授权的当前 Codex 模型配置入口读取 base/key；不复制凭证到文件、argv、日志或原生事实。用户在本轮明确要求定位并复用当前 Codex 配置，不重复索要密钥，不扩展为其他工具凭证或自动付费探测。HTTPS 保持默认；私网 HTTP 须单独明确确认，不能通过伪装本机、隐式代理或关闭证书验证绕过。恢复不重发，真实服务和模拟验收分别报告。
 - 需求文字非空且未停用即参与。保持用户原文与 Agent 解释的区别；后续步骤绑定明确的前序结果及坐标系。
 - ygl unlock、rc0、提供商受理、收到图片、检查通过、人工接受和任务交付分别判断。质量未知或未运行不计通过。
+- external/received 的有效输出与 workflow-run 的 API 待恢复 received 分别处理；图像任务仍须当前目标／需求、确切 hash 接受及实际交付。路径预检在交付准备意图前，发布阶段再次核对，已落准备事实的失败不得标成无副作用。`project check`／brief.business_health 补业务状态检查，原生 doctor/index 不代替业务完成验收。
+- 商品事实由原生 product-facts spec 承载，字段绑定来源与精确摘录，视觉接受不提升规格；计划区分 concept/product-accurate，必要缺项可用明确保守方案处理。反馈保留原始 score/scale_max/原文/来源，未说明的下限或刻度为 null；统计按量表分组，不自动把 8/10 换算为 4/5。新语义由 ZIP required capabilities 保护。
 - 相同请求键重放已有事实；外部请求结果未知时先对账。补写 ygl 失败不能触发重新生成图片。
 - 新任务须绑定明确业务项目、目标版本、交付物和完成条件。接手先读 project brief；外部候选、设计文档与实际生成分别记录。使用 `docs/PROJECT-CONTEXT.md` 中的真实接口迁移旧任务，不补造历史目标、授权或接受。
 - 业务方案以关联项目／任务的原生 design/spec/citation 为正式入口；先读 brief.documents 和 artifact show，按 ID/version/hash 用 artifact revise 修订，历史用 artifact history。Markdown/ZIP 是显式可读／交换副本，不默认创建业务 docs/*.md，不靠文件名管理正式版本；源码仓库 docs 保存开发规范，不能据此强制业务副本目录。既有正文 v1/v2 字样不等于原生 version，不重复登记已有工件。
@@ -36,6 +38,7 @@
 - 业务 CLI：`node src/cli.ts`；类型检查：`npm run typecheck`；完整原生测试：`node scripts/test.mjs --ygl-entry <实际安装入口>`；历史夹具回归显式 `--legacy`；独立原生演示：`node scripts/demo.mjs --ygl-entry <实际安装入口>`。Windows PowerShell 使用 Node 入口传递参数，不依赖 npm.ps1 转发。
 - 当前实际命令与协议以 `docs/CLI.md`、`docs/HOST-EXECUTOR.md` 和 CLI help 为准。宿主执行以 actual tool availability 为前提，dispatch 的 replayed 响应不能触发第二次出图。保持区采用批准矩形内合成，再对实际候选做视觉检查。
 - 每次完整测试保存不可变运行报告与最新索引到 `docs/verification/`；原生集成、离线图像处理、宿主协议夹具、真实 AI 质量分别报告。单元测试显式 `--unit-only`，不把它写成原生集成已通过。
+- 试点问题专项入口为 `node scripts/test.mjs --suite issues --ygl-entry <入口>`；#7 文档归档回放同时在 documents 套件验收。完整测试仍包含全部 native 场景，不用定向结果代替完整回归。
 
 - 本机另保留初始设计校验与探针工具 `scripts/validate-retouch-design.mjs`、`scripts/explore-retouch-ygl.mjs`；它们和所需原生记录、归档基线不随公开仓库发布。仅在这些本地材料实际存在且当前任务需要时使用，不把它们作为公共构建或测试前提。
 - 本机设计记录使用独立 home `~/.ygl-trees/workspaces/retouch-cli-design`。项目更名只更新其归属 marker，保留原 project/tree/task ID；不改默认库、全局安装或共享 ygl 检出。

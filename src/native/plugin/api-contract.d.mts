@@ -11,6 +11,14 @@ export interface ApiProfile {
   timeout_ms: number;
   response_limit_bytes: number;
   allow_loopback_http: boolean;
+  private_http?: { enabled: true; confirmation: string };
+  configuration_source?: {
+    kind: "codex-model";
+    authorized: boolean;
+    authorization_ref?: string;
+    workspace_id?: string;
+    provider?: string;
+  };
 }
 export function apiProfile(value: unknown): ApiProfile;
 export function apiEndpoint(value: string, profile: ApiProfile): string;

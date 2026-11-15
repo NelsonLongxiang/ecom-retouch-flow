@@ -2,6 +2,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { requireThat, RetouchError, bytesHash } from "../domain/model.ts";
 import { NativeClient } from "./client.ts";
+import { configuration } from "./configuration.ts";
 import {
   objectBytes,
   registerBytes,
@@ -38,8 +39,15 @@ type ExecuteOptions = {
 const json = (v: string) => JSON.parse(v);
 const localKey = (execution: string, operation: string, phase: string) =>
   "api-local:" + execution + ":" + operation + ":" + phase;
-function resolve(profile: ApiProfile, env: Environment, needKey: boolean) {
-  const base = env[profile.base_env];
+async function resolve(
+  profile: ApiProfile,
+  env: Environment,
+  needKey: boolean,
+  workspaceId: string,
+  known?: Awaited<ReturnType<typeof configuration>>,
+) {
+  const source = known ?? (await configuration(profile, env, workspaceId)),
+    base = source.base;
   requireThat(
     base,
     "API_BASE_MISSING",
@@ -48,7 +56,7 @@ function resolve(profile: ApiProfile, env: Environment, needKey: boolean) {
   );
   const endpoint = apiEndpoint(base, profile),
     endpoint_fingerprint = digest(endpoint);
-  const key = needKey ? env[profile.credential_env] : undefined;
+  const key = needKey ? source.key : undefined;
   if (needKey)
     requireThat(
       typeof key === "string" && /^[\x21-\x7e]{1,4096}$/.test(key),
@@ -56,7 +64,15 @@ function resolve(profile: ApiProfile, env: Environment, needKey: boolean) {
       "执行配置引用的密钥变量未设置或无效",
       1,
     );
-  return { endpoint, endpoint_fingerprint, key };
+  return {
+    endpoint,
+    endpoint_fingerprint,
+    key,
+    source,
+    credential_configured:
+      typeof source.key === "string" &&
+      /^[\x21-\x7e]{1,4096}$/.test(source.key),
+  };
 }
 export async function registerExecutor(
   client: NativeClient,
@@ -66,8 +82,42 @@ export async function registerExecutor(
   env: Environment = process.env,
 ) {
   assertNoCredentials(input);
-  const profile = apiProfile(input.profile);
-  const { endpoint_fingerprint } = resolve(profile, env, false);
+  let profile = apiProfile(input.profile);
+  const identity = await client.call("workspace-info", {});
+  if (profile.configuration_source) {
+    requireThat(
+      !profile.configuration_source.workspace_id ||
+        profile.configuration_source.workspace_id === identity.id ||
+        (typeof input.configuration_authorization_ref === "string" &&
+          input.configuration_authorization_ref.trim()),
+      "CONFIG_SOURCE_REAUTHORIZE",
+      "跨工作区配置读取须有新的本地授权来源",
+      1,
+    );
+    profile = apiProfile({
+      ...profile,
+      configuration_source: {
+        ...profile.configuration_source,
+        ...(input.configuration_authorization_ref
+          ? {
+              authorized: true,
+              authorization_ref: input.configuration_authorization_ref,
+            }
+          : {}),
+        workspace_id: identity.id,
+      },
+    });
+  }
+  const resolved = await resolve(profile, env, false, identity.id),
+    { endpoint_fingerprint } = resolved;
+  if (profile.configuration_source)
+    profile = apiProfile({
+      ...profile,
+      configuration_source: {
+        ...profile.configuration_source,
+        provider: resolved.source.provider,
+      },
+    });
   return client.call(
     "executor-register",
     { project, title: input.title, profile, endpoint_fingerprint },
@@ -81,6 +131,57 @@ export async function checkExecutor(
   env: Environment = process.env,
 ) {
   const artifact = await client.call("show", { project, id });
+  return inspectExecutor(client, project, artifact, env);
+}
+export async function diagnoseExecutor(
+  client: NativeClient,
+  project: string,
+  input: any,
+  env: Environment = process.env,
+) {
+  assertNoCredentials(input);
+  let profile;
+  try {
+    profile = apiProfile(input.profile);
+  } catch (e) {
+    return {
+      profile_id: null,
+      protocol_support: { adapter_supported: false },
+      diagnostic: (e as any).code,
+      network: "NOT_RUN",
+      configuration_read: "NOT_RUN",
+    };
+  }
+  if (
+    profile.configuration_source &&
+    !profile.configuration_source.workspace_id
+  )
+    profile = apiProfile({
+      ...profile,
+      configuration_source: {
+        ...profile.configuration_source,
+        workspace_id: (await client.call("workspace-info", {})).id,
+      },
+    });
+  return inspectExecutor(
+    client,
+    project,
+    {
+      id: null,
+      version: null,
+      kind: "executor-profile",
+      content: JSON.stringify({ profile, endpoint_fingerprint: null }),
+    },
+    env,
+  );
+}
+async function inspectExecutor(
+  client: NativeClient,
+  project: string,
+  artifact: any,
+  env: Environment,
+) {
+  const id = artifact.id;
   requireThat(
     artifact.kind === "executor-profile",
     "API_PROFILE",
@@ -90,26 +191,78 @@ export async function checkExecutor(
     profile = apiProfile(content.profile);
   let matches: boolean | null = null,
     code: string | null = null;
+  let resolved: Awaited<ReturnType<typeof resolve>> | null = null;
+  let source: Awaited<ReturnType<typeof configuration>> | null = null;
   try {
-    matches =
-      resolve(profile, env, false).endpoint_fingerprint ===
-      content.endpoint_fingerprint;
+    const workspaceId = (await client.call("workspace-info", {})).id;
+    source = await configuration(profile, env, workspaceId);
+    resolved = await resolve(profile, env, false, workspaceId, source);
+    matches = content.endpoint_fingerprint
+      ? resolved.endpoint_fingerprint === content.endpoint_fingerprint
+      : null;
+    if (matches === false) code = "API_ENDPOINT_CHANGED";
   } catch (e) {
     code = (e as any).code ?? "API_BASE";
   }
-  const configured =
-    typeof env[profile.credential_env] === "string" &&
-    /^[\x21-\x7e]{1,4096}$/.test(env[profile.credential_env]!);
+  const configured = source
+    ? typeof source.key === "string" && /^[\x21-\x7e]{1,4096}$/.test(source.key)
+    : false;
+  const view = await client.call("brief", { project });
+  const history = view.artifacts
+    .filter((a: any) => a.kind === "execution")
+    .map((a: any) => {
+      const m = json(a.meta);
+      return {
+        execution_id: a.id,
+        observed_at: a.updated || a.created,
+        source: m.role,
+        source_ref: m.source ?? m.dispatch?.channel ?? "unspecified",
+        model: m.api_intent?.model ?? m.model ?? null,
+        status: m.status,
+        profile_id: m.api_intent?.profile_id ?? null,
+        has_registered_image: (m.outputs?.length ?? 0) > 0 || !!m.raw_output,
+      };
+    })
+    .sort((a: any, b: any) => b.observed_at.localeCompare(a.observed_at));
   return {
     profile_id: artifact.id,
     version: artifact.version,
     protocol: profile.protocol,
     model: profile.model,
-    base_configured: !!env[profile.base_env],
+    base_configured: !!source?.base,
     credential_configured: configured,
     endpoint_matches: matches,
     ready: matches === true && configured,
+    registration_ready: code === null && !!resolved && configured,
     diagnostic: code,
+    configuration_read: source ? "READ_EXPLICIT_SOURCE" : "NOT_RUN",
+    readiness_scope: "LOCAL_CONFIGURATION_ONLY",
+    builtin_tool: view.executor_observations?.[0] ?? {
+      state: "unknown",
+      source: "host has not supplied an inventory observation",
+    },
+    protected_configuration: {
+      kind: profile.configuration_source?.kind ?? "environment",
+      authorized: profile.configuration_source?.authorized ?? true,
+      present: !!source?.base,
+      diagnostic: code,
+    },
+    protocol_support: {
+      adapter_supported: true,
+      protocol: profile.protocol,
+      image_service_verified: false,
+      request_sizes: ["auto", "1024x1024", "1536x1024", "1024x1536"],
+    },
+    recent_image_result:
+      history.find(
+        (r: any) => id && r.profile_id === id && r.has_registered_image,
+      ) ?? null,
+    latest_bound_call:
+      history.find((r: any) => id && r.profile_id === id) ?? null,
+    unbound_historical_results: history
+      .filter((r: any) => !r.profile_id && r.status !== "planned")
+      .slice(0, 5),
+    historical_success_is_current_authentication: false,
     network: "NOT_RUN",
   };
 }
@@ -658,7 +811,12 @@ export async function executeApi(
   const profileArtifact = await artifact(client, project, options.profileId),
     configuration = json(profileArtifact.content),
     profile = apiProfile(configuration.profile),
-    resolved = resolve(profile, options.env ?? process.env, true);
+    resolved = await resolve(
+      profile,
+      options.env ?? process.env,
+      true,
+      (await client.call("workspace-info", {})).id,
+    );
   requireThat(
     resolved.endpoint_fingerprint === configuration.endpoint_fingerprint,
     "API_BINDING",

@@ -1,10 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { bytesHash, requireThat } from "../domain/model.ts";
+import { bytesHash, requireThat, RetouchError } from "../domain/model.ts";
 import { Images } from "../adapters/images.ts";
 import type { NativeClient } from "./client.ts";
 import { digest } from "./plugin/commands.mjs";
+import { freezeDimension } from "./plugin/media-diagnostics.mjs";
 
 export async function safeDirectory(root: string, relative: string) {
   const target = path.resolve(root, relative);
@@ -323,77 +324,259 @@ export async function deliverRun(
   requestId: string,
 ) {
   const target = path.resolve(directory);
+  const run = await client.call("show", { project, id }),
+    rmBefore = JSON.parse(run.meta);
   requireThat(
-    !target.startsWith(client.root + path.sep) && target !== client.root,
-    "DELIVERY_PATH",
-    "交付目录须独立于运行工作区",
+    typeof rmBefore.accepted_id === "string",
+    "RUN_STATE",
+    "交付前须有用户接受",
+    1,
   );
+  const image = await client.call("show", {
+    project,
+    id: rmBefore.accepted_id,
+  });
+  const prior = await client.call("receipt", {
+    request_id: requestId + ":intent",
+  });
+  if (prior?.result)
+    requireThat(
+      prior.action === "run-deliver" &&
+        prior.result.execution?.id === id &&
+        prior.result.execution?.project_id === project &&
+        samePath(
+          JSON.parse(prior.result.execution.meta).delivery_directory,
+          target,
+        ),
+      "REQUEST_CONFLICT",
+      "相同请求键用于其他交付意图",
+      1,
+    );
+  const previousDimensions = prior?.result
+    ? JSON.parse(prior.result.execution.meta).delivery_dimensions
+    : (rmBefore.delivery_dimensions ??
+      freezeDimension(
+        (await client.call("dimensions", { project, id: image.id })).images[0],
+      ));
+  let prepared: Publication;
+  try {
+    prepared = await preparePublication(client, image, target, {
+      execution_id: id,
+      ...(previousDimensions
+        ? { dimension_provenance: previousDimensions }
+        : {}),
+    });
+  } catch (error) {
+    if (prior?.result || rmBefore.status === "delivering")
+      publicationError(error, id);
+    throw error;
+  }
   const reserved = await client.call(
     "run-deliver",
     { project, id, directory: target, expected_revision: revision },
     requestId + ":intent",
   );
-  const rm = JSON.parse(reserved.execution.meta),
-    image = await client.call("show", { project, id: rm.accepted_id });
-  const manifest_sha256 = await publishMedia(client, image, target, {
-    execution_id: id,
-  });
-  return client.call(
-    "run-delivered",
-    {
-      project,
-      id,
-      directory: target,
-      manifest_sha256,
-      expected_revision: rm.revision,
-    },
-    requestId + ":commit",
+  try {
+    const dimensions = JSON.parse(reserved.execution.meta).delivery_dimensions;
+    prepared.manifestBytes = manifestBytes(image, {
+      execution_id: id,
+      ...(dimensions ? { dimension_provenance: dimensions } : {}),
+    });
+    const manifest_sha256 = await publishMedia(client, image, target, prepared);
+    return await client.call(
+      "run-delivered",
+      {
+        project,
+        id,
+        directory: target,
+        manifest_sha256,
+        expected_revision: JSON.parse(reserved.execution.meta).revision,
+      },
+      requestId + ":commit",
+    );
+  } catch (error) {
+    publicationError(error, id);
+  }
+}
+const pathKey = (value: string) =>
+  process.platform === "win32" ? value.toLowerCase() : value;
+const samePath = (a: string, b: string) => pathKey(a) === pathKey(b);
+type Publication = {
+  parent: string;
+  directory: string | null;
+  imageName: string;
+  bytes: Buffer;
+  manifest: any;
+  manifestBytes: Buffer | null;
+};
+const fileIdentity = (stat: Awaited<ReturnType<typeof fs.stat>>) =>
+  stat.dev + ":" + stat.ino;
+function manifestBytes(image: any, identity: Record<string, unknown>) {
+  const im = JSON.parse(image.meta);
+  return Buffer.from(
+    JSON.stringify(
+      {
+        schema: "retouch.delivery/v2",
+        project_id: image.project_id,
+        ...identity,
+        media_id: image.id,
+        sha256: im.sha256,
+        width: im.width,
+        height: im.height,
+        bytes: im.bytes,
+      },
+      null,
+      2,
+    ) + "\n",
   );
 }
-async function publishMedia(
-  client: NativeClient,
-  image: any,
-  target: string,
-  identity: Record<string, unknown>,
-) {
-  requireThat(
-    !target.startsWith(client.root + path.sep) && target !== client.root,
-    "DELIVERY_PATH",
-    "交付须独立于运行工作区",
+function publicationError(error: unknown, id: string): never {
+  const e = error as any;
+  throw new RetouchError(
+    e.code ?? "DELIVERY_PUBLISH",
+    "交付准备已登记，发布未确认完成；请核对后以同键同路径恢复。",
+    1,
+    {
+      preparation_committed: true,
+      artifact_id: id,
+      cause: e.code ?? "IO",
+      recovery:
+        "replay same request; or delivery abandon after inspecting files",
+    },
+    e.effectStatus === "unknown" ? "unknown" : "committed",
   );
-  const im = JSON.parse(image.meta),
-    bytes = await objectBytes(client.root, im);
-  const parent = await fs.realpath(path.dirname(target));
+}
+async function directoryState(client: NativeClient, target: string) {
+  const rel = path.relative(client.root, target),
+    inverse = path.relative(target, client.root);
   requireThat(
-    parent === path.dirname(target),
+    rel &&
+      (rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) &&
+      inverse &&
+      (inverse.startsWith(".." + path.sep) || path.isAbsolute(inverse)),
+    "DELIVERY_PATH",
+    "交付目录须独立于运行工作区",
+    1,
+  );
+  const parent = path.dirname(target);
+  requireThat(
+    samePath(await fs.realpath(parent), parent),
     "DELIVERY_LINK",
     "交付父目录不能经链接改向",
     1,
   );
-  await fs.mkdir(target).catch((e: NodeJS.ErrnoException) => {
-    if (e.code !== "EEXIST") throw e;
+  const ps = await fs.stat(parent);
+  requireThat(ps.isDirectory(), "DELIVERY_PATH", "交付父目录须已存在", 1);
+  const stat = await fs.lstat(target).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === "ENOENT") return null;
+    throw e;
   });
   requireThat(
-    !(await fs.lstat(target)).isSymbolicLink(),
+    !stat ||
+      (stat.isDirectory() &&
+        !stat.isSymbolicLink() &&
+        samePath(await fs.realpath(target), target)),
     "DELIVERY_LINK",
-    "交付目录不能为链接",
+    "交付目标须为非链接目录",
     1,
   );
+  return {
+    parent: fileIdentity(ps),
+    directory: stat ? fileIdentity(stat) : null,
+  };
+}
+async function checkPublishedFile(
+  target: string,
+  name: string,
+  bytes: Buffer | null,
+) {
+  const file = path.join(target, name);
+  const stat = await fs.lstat(file).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  });
+  if (!stat) return;
+  requireThat(
+    bytes &&
+      stat.isFile() &&
+      !stat.isSymbolicLink() &&
+      bytesHash(await fs.readFile(file)) === bytesHash(bytes),
+    "DELIVERY_CONFLICT",
+    "交付已有不同内容或不属于本次意图的文件，停止覆盖",
+    1,
+  );
+}
+async function preparePublication(
+  client: NativeClient,
+  image: any,
+  target: string,
+  identity: Record<string, unknown> | null,
+): Promise<Publication> {
+  const state = await directoryState(client, target);
+  const im = JSON.parse(image.meta),
+    bytes = await objectBytes(client.root, im);
   const manifest = {
     schema: "retouch.delivery/v2",
     project_id: image.project_id,
-    ...identity,
+    ...(identity ?? {}),
     media_id: image.id,
     sha256: im.sha256,
     width: im.width,
     height: im.height,
     bytes: im.bytes,
   };
+  const imageName =
+    "image." +
+    (im.mime === "image/jpeg"
+      ? "jpg"
+      : im.mime === "image/webp"
+        ? "webp"
+        : "png");
+  const expectedManifest = identity ? manifestBytes(image, identity) : null;
+  if (state.directory) {
+    await checkPublishedFile(target, imageName, bytes);
+    await checkPublishedFile(target, "manifest.json", expectedManifest);
+  }
+  return {
+    ...state,
+    imageName,
+    bytes,
+    manifest,
+    manifestBytes: expectedManifest,
+  };
+}
+async function publishMedia(
+  client: NativeClient,
+  image: any,
+  target: string,
+  prepared: Publication,
+) {
+  let state = await directoryState(client, target);
+  requireThat(
+    state.parent === prepared.parent && state.directory === prepared.directory,
+    "DELIVERY_PATH_CHANGED",
+    "交付路径在准备后发生变化，请先核对",
+    1,
+  );
+  if (!state.directory) await fs.mkdir(target);
+  state = await directoryState(client, target);
+  const recheck = async () => {
+    const now = await directoryState(client, target);
+    requireThat(
+      now.parent === state.parent && now.directory === state.directory,
+      "DELIVERY_PATH_CHANGED",
+      "发布目录已发生变化",
+      1,
+    );
+  };
+  const manifestBytes = prepared.manifestBytes!;
   async function immutable(name: string, data: Buffer) {
+    await recheck();
     const file = path.join(target, name);
     try {
       await fs.writeFile(file, data, { flag: "wx" });
     } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       requireThat(
         (e as NodeJS.ErrnoException).code === "EEXIST" &&
           !(await fs.lstat(file)).isSymbolicLink() &&
@@ -404,17 +587,9 @@ async function publishMedia(
       );
     }
   }
-  const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
-  await immutable(
-    "image." +
-      (im.mime === "image/jpeg"
-        ? "jpg"
-        : im.mime === "image/webp"
-          ? "webp"
-          : "png"),
-    bytes,
-  );
+  await immutable(prepared.imageName, prepared.bytes);
   await immutable("manifest.json", manifestBytes);
+  await recheck();
   return bytesHash(manifestBytes);
 }
 export async function deliverArtifact(
@@ -424,18 +599,118 @@ export async function deliverArtifact(
   directory: string,
   requestId: string,
 ) {
-  const target = path.resolve(directory),
-    reserved = await client.call(
-      "delivery-prepare",
-      { project, id, directory: target },
-      requestId + ":intent",
-    );
-  const manifest_sha256 = await publishMedia(client, reserved.media, target, {
-    delivery_id: reserved.delivery.id,
+  const target = path.resolve(directory);
+  const prior = await client.call("receipt", {
+    request_id: requestId + ":intent",
   });
+  if (prior?.result) {
+    const d = prior.result.delivery,
+      m = d && JSON.parse(d.meta);
+    requireThat(
+      prior.action === "delivery-prepare" &&
+        d?.project_id === project &&
+        m.media_id === id &&
+        samePath(m.directory, target),
+      "REQUEST_CONFLICT",
+      "相同请求键携带不同交付意图",
+      1,
+    );
+    requireThat(
+      JSON.parse((await client.call("show", { project, id: d.id })).meta)
+        .status !== "abandoned",
+      "DELIVERY_ABANDONED",
+      "该交付已显式放弃，不能重放发布",
+      1,
+    );
+  }
+  const image = await client.call("show", { project, id });
+  const previousDimensions = prior?.result
+    ? JSON.parse(prior.result.delivery.meta).dimension_provenance
+    : null;
+  let prepared: Publication;
+  try {
+    prepared = await preparePublication(
+      client,
+      image,
+      target,
+      prior?.result
+        ? {
+            delivery_id: prior.result.delivery.id,
+            ...(previousDimensions
+              ? { dimension_provenance: previousDimensions }
+              : {}),
+          }
+        : null,
+    );
+  } catch (error) {
+    if (prior?.result) publicationError(error, prior.result.delivery.id);
+    throw error;
+  }
+  const reserved = await client.call(
+    "delivery-prepare",
+    { project, id, directory: target },
+    requestId + ":intent",
+  );
+  const dimensions = JSON.parse(reserved.delivery.meta).dimension_provenance;
+  prepared.manifestBytes = manifestBytes(image, {
+    delivery_id: reserved.delivery.id,
+    ...(dimensions ? { dimension_provenance: dimensions } : {}),
+  });
+  try {
+    const manifest_sha256 = await publishMedia(
+      client,
+      reserved.media,
+      target,
+      prepared,
+    );
+    return await client.call(
+      "delivery-complete",
+      { project, id: reserved.delivery.id, manifest_sha256 },
+      requestId + ":commit",
+    );
+  } catch (error) {
+    publicationError(error, reserved.delivery.id);
+  }
+}
+export async function abandonDelivery(
+  client: NativeClient,
+  project: string,
+  id: string,
+  statement: string,
+  requestId: string,
+) {
+  const delivery = await client.call("show", { project, id }),
+    m = JSON.parse(delivery.meta);
+  requireThat(delivery.kind === "delivery", "DELIVERY", "需要交付工件", 1);
+  const manifestFile = path.join(m.directory, "manifest.json");
+  const stat = await fs
+    .lstat(manifestFile)
+    .catch((e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT") return null;
+      throw e;
+    });
+  requireThat(
+    !stat || (stat.isFile() && !stat.isSymbolicLink()),
+    "DELIVERY_LINK",
+    "处置前不能沿清单链接读取其他文件",
+    1,
+  );
+  const manifest = await fs
+    .readFile(path.join(m.directory, "manifest.json"), "utf8")
+    .then(JSON.parse)
+    .catch((e) => {
+      if (e.code === "ENOENT" || e instanceof SyntaxError) return null;
+      throw e;
+    });
+  requireThat(
+    manifest?.delivery_id !== id,
+    "DELIVERY_ALREADY_PUBLISHED",
+    "已存在此交付的发布清单，请重放原意图完成登记",
+    1,
+  );
   return client.call(
-    "delivery-complete",
-    { project, id: reserved.delivery.id, manifest_sha256 },
-    requestId + ":commit",
+    "delivery-abandon",
+    { project, id, statement, publication_inspected: true },
+    requestId,
   );
 }
