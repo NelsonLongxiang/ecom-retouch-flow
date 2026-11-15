@@ -31,8 +31,10 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 让 Agent 使用 [SKILL.md](SKILL.md)；参数及 JSON 示例见 [CLI](docs/CLI.md)，真实图像交接见 [宿主协议](docs/HOST-EXECUTOR.md)，架构边界见 [架构](docs/ARCHITECTURE.md)。[动态上下文规范](docs/DYNAMIC-CONTEXT.md) 区分已实现的检索分析与仍由宿主 Agent 完成的专业解释。
 
+[工程流程契约](docs/ENGINEERING-CONTRACTS.md) 提供用途与内容覆盖、多来源冲突、旧图重新采纳、逐项商品保持、原生本地变换和套图快照。接手能看到“已有结果待复核”，套图支持部分接受、完整/增量图片包；真实观察、未知、用户接受和技术状态分别保存。
+
 旧 0.2.0 账本和 v1 ZIP 仅通过 `legacy inspect/migrate` 只读读取，迁入新建隔离工作区；不自动修改真实用户数据。原生 v2 ZIP 不静默接受旧格式。操作和限制见 [项目上下文](docs/PROJECT-CONTEXT.md)。
 
-自动化回归使用真实 ygl CLI 与本地图片夹具，当前完整结果为 17/17 PASS。2026-11-15 另经用户明确授权，使用合成素材完成一次 `gpt-image-2` 原生 API 调用，实际返回 1254×1254 PNG，并验证原生状态可独立接手；商品图质量与用户接受仍单独判断。证据和范围见 [验证](docs/verification/README.md)。历史 42 项回归通过 `--legacy` 显式运行，不充当原生架构验收。
+自动化回归使用真实 ygl CLI 与本地图片夹具，当前完整结果为 22/22 PASS，运行前后源码指纹一致。2026-11-15 另经用户明确授权，使用合成素材完成一次 `gpt-image-2` 原生 API 调用，实际返回 1254×1254 PNG，并验证原生状态可独立接手；商品图质量与用户接受仍单独判断。E01–E07开发验证未新增真实图像调用。证据和范围见 [验证](docs/verification/README.md)。历史42项回归通过 `--legacy` 显式运行，不充当原生架构验收。
 
 MIT License。原浏览器插件冻结于本地 `archive/`，归档、业务运行状态、凭证与机器验证记录不参与 Git 跟踪。

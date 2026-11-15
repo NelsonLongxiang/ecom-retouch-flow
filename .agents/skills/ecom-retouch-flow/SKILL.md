@@ -14,3 +14,5 @@ description: 用基于 ygl-trees 原生 CLI 的电商修图流组织部位需求
 已授权的当前 Codex 配置用 codex-model 来源复用，先诊断各层能力，不重问密钥或把本地 ready 当认证。商品事实按字段原生 spec 管理，概念与实物准确用途分开，视觉接受不提升规格；反馈保留原始量表，不默认换算五分制。交付先预检，已准备的失败按原键恢复或显式处置。操作细节由根技能链接维护。
 
 业务方案以关联项目／任务的原生 design/spec/citation 为正式入口。brief.documents → artifact show 读取，artifact revise 按 ID/version/hash 修订 design/spec，artifact history 查历史。Markdown 仅由 artifact export 显式生成可读副本，目录由交付需求决定；不将 docs 或 v1/v2.md 当正式业务版本库。
+
+新增流程先读根技能的用途覆盖、证据冲突、旧图复核、逐项保持、本地变换和套图快照规范。技术PASS不代表用途覆盖；旧图需artifact revalidate后再按当前上下文接受，套图只接受明确槽位。后处理复用asset transform；图片预览ZIP与完整项目ZIP分开。完整格式由根技能链接的ENGINEERING-CONTRACTS维护。

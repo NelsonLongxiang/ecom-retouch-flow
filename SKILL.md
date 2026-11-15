@@ -13,6 +13,10 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 
 业务方案的正式入口是工作区内关联项目／任务的原生工件：变体与套图方案用 design，目标、规格和约束用 spec，来源快照用 citation。先从 brief.documents 定位当前 ID，再 `artifact show` 读取正文、版本、hash 和事实角色；历史用 `artifact history`。修订已有 design/spec 用 `artifact revise`，提交已读取的 version/hash、完整正文、原因和来源，保留原生历史和关联；同名重复 register 会拒绝。citation 保持精确快照，来源更新后重新阅读并明确引用，不编辑旧引用。详细示例见 [原生文档操作](docs/CLI.md#原生文档与导出)。
 
+制作前用 `intent set` 在原生spec声明business_intent（问题、使用者、怎样使用、在哪使用）和当前项目真正需要的内容义务。它与concept/product-accurate分开；不把人物图、尺寸图当所有商品固定必选。每步coverage_ids说明本图承接什么，实际看图后coverage review绑定候选hash逐项记录观察，七张图或prompt写了用途都不算覆盖通过。brief.content_coverage与技术business_health分别读取；未看清为UNKNOWN，未检查为NOT_EVALUATED。先过代表样张再扩套；用户明确要求直接批量时保留原文选择并用direct-batch，不重复审批。详细格式见 [流程契约](docs/ENGINEERING-CONTRACTS.md)。
+
+文字参数、原图和参考矛盾时，用conflict record保留同字段多候选、原生来源、适用商品和时间。先回读已给材料，只为影响当前画面的未决点补证；外部检索记录目的与停止条件，不做无收益背景调研。conflict resolve保留选用/暂缓理由与所有来源的回读；concept-reference或creative-choice不升级商品事实。同外观参考不自动证明同SKU、材质或适配，只有相关fact_keys影响当前任务，不把所有未知都变成审批。
+
 面向用户报告工作区、项目／任务、工件 ID 和原生版本；正文中既有的 v1/v2 标记不代表原生 version。Markdown 和 ZIP 是显式导出或交换副本，不靠文件名管理正式版本，不默认先写业务 `docs/*.md` 再补登记。需要可读文件时 `artifact export --to <明确路径>`；导出不回写原生正文，也不替代设计评审。技能不强制副本目录，源码仓库 docs 保存的是产品开发规范。
 
 旧副本仅在已有归档授权内处置：先读对应原生历史正文，核对副本正文和文件 SHA-256，再归档；用原生 reference spec 记录文件 hash 到 source_workspace/project/artifact/version/content_hash 的映射。文件 hash 与正文 hash 分开，不为文件名 v2 重建原生版本；没有保全或归档授权时保留原位。脱敏回放与示例见 [试点验收](docs/ISSUE-ACCEPTANCE.md)。
@@ -32,6 +36,12 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 执行 API 使用 `run execute-api`，相同请求键重放不会再次提交。超时／断开保留 unknown，先对账；提供商原请求的迟到图片用 `run api-result`，有真实失败依据时用 `run api-reconcile`。已收到响应但本地合成中断时用 `run recover-api`，无需凭证、不访问图像服务。尺寸不符时可显式 `--fit-input` 产生独立缩放产物，再合成批准区域；保留模型原始尺寸和全部来源，不能为此重新出图。收到图片仍须视觉检查和用户接受。
 
 已有外部图像通过 `asset add`、`execution record/reconcile` 登记。原图 → 模型原生结果 → 后处理分别绑定实际文件、尺寸与派生来源；已有候选先检查，用 `artifact review/deliver` 交付，不重新请求生成。设计／套图文档与已生成商品图分别统计。标签和 AI 补绘不能作为商品结构或规格的确认依据。
+
+目标或上下文变化后，task context-review只复核上下文。出现result_needs_review时先查看已有图片，再用artifact revalidate绑定旧media/hash、当前目标/需求、revision和实际理由来adopt/reject；不复制同图改goal_id，不沿用旧接受或交付。UNKNOWN请求继续先对账。task close会事务性挂接当前有效的节点证据，不能通过忽略doctor告警替代产物依据。
+
+用invariant set声明少量有来源、视角范围明确的保持项，再invariant review逐项查数量、结构、颜色、人物、文字和遮挡。低清数不出时UNKNOWN，AI补绘不作原品证明；必检FAIL/UNKNOWN不能用总体PASS绕过，失败候选保留。局部修补、透明蒙版、裁切、合成、标题和缩放优先复用asset transform，显式登记所有输入职责、批准矩形和字体；不重复写临时Sharp脚本，不因后处理而重发图像请求。
+
+套图用suite snapshot管理稳定槽位、顺序与当前media/hash，替换/增补追加快照。suite accept只写用户明确认可的槽位范围，未改变图保留原接受，替换图需新接受。从同一快照suite export生成总览、完整/增量图片包；preview可带未接受候选并标状态，delivery仍核对接受、保持项和内容覆盖。图片预览包不是完整项目上下文ZIP，不能据导出成功宣称工作区可恢复或任务已完结。
 
 初始化或阶段切换时，用 `context search/build` 查询所有已登记工作区的原生 design/spec。阅读正文、目标、保持项、评分及结语后给专业建议，写清来源、适用条件和未知部分；工具给出的频率／共现只是依据，不能直接推导满意度或因果。解释保留 Agent 角色；用户确认另记。
 

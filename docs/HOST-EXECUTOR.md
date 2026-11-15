@@ -8,6 +8,8 @@
 
 有商品字段时，读取 job 的 purpose/fact_check，以及 step.bound_facts 和 step.fact_constraints。实际图像工具提示词须包含这些已确认值、单位、单件／整套范围和保守呈现边界；不只转发 step.prompt。来源摘录及原生审计 ID 留在本地，不为渲染整段外发。概念提案不升级为实物规格，视觉接受不改变事实 spec。
 
+step.content_obligations与step.invariant_items分别描述本图须讲清的业务内容和逐项保持要求，也须进入实际制作提示词。返回候选后先实际查看，再coverage review／invariant review绑定真实hash保存各项观察；看不清或工具缺失保持UNKNOWN/NOT_EVALUATED。run review的PASS会核对所承担的必检内容与保持项，sample-first下代表义务未通过时不能继续后续dispatch；用户已有direct-batch原文选择时沿用该范围，不追加同一审批。技术检查PASS不自动填写内容PASS，详见 [流程契约](ENGINEERING-CONTRACTS.md)。
+
 在调用工具前，确认用户已授权的素材外发、修改范围和目标平台适用。已有同范围确认可作为实际来源，不反复追加审批。API fallback 已作为显式入口实现，须绑定配置及费用／外发授权，见 [API fallback](API-FALLBACK.md)；不能凭工具缺失自动收费。
 
 图像返回后使用 `run complete --file <实际输出>`。CLI 注册模型原始字节；局部处理时仅将批准矩形像素合成到输入图，原始输出和候选分别留存。局部输出尺寸必须与输入一致；全图步骤可产生不同尺寸，但后处理仍生成独立工件，不改写原生结果尺寸。

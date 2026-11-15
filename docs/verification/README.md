@@ -9,10 +9,11 @@ node scripts/test.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite api --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite documents --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite issues --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite engineering --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
-默认测试为 `native-*.test.ts`，包含原生基础 6 个场景、API 的 3 个场景、原生文档闭环 1 个场景和试点问题 7 个场景（每个完整流程内包含多项断言）。历史 0.2.0 的 42 项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
+默认测试为 `native-*.test.ts`，包含原生基础6个场景、API的3个场景、原生文档闭环1个场景、试点问题7个场景和E01–E07工程契约5个场景（每个完整流程内包含多项断言）。历史0.2.0的42项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
 
 0.3.0 历史基线为原生 6/6、历史 42/42 与两步演示通过。0.4.0 的当前结果以本轮 native-wrapper-tests.json 与 api-tests.json 的实际 verdict／源码指纹为准，不以旧报告代替。这些自动化报告中的真实 AI 图像／收费 API 为 NOT_RUN，实调报告另列。
 
@@ -21,6 +22,8 @@ node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 2026-11-15 原生文档整改的最终完整回归为 10/10 PASS，零失败、零取消、零跳过，类型检查 PASS。覆盖同名 citation 独立固定、目标旧绑定保留、原生修订和导出副本、受保护内容拒绝导出、ZIP 历史与真实任务状态恢复；证据随完整报告保存。早期定向报告的源码指纹可能较旧，应以最终完整报告核验当前实现。
 
 2026-11-15 试点问题 #3–#10 的最终完整隔离回归为 17/17 PASS，零失败／取消／跳过，类型检查 PASS。包含已确认规格值的实际提示词绑定、同名旧副本归档映射、原始8/10与旧4/5的分组、Codex受保护来源、私网HTTP字面地址边界、模拟服务忽略size、交付中断恢复及external/workflow received区分。真实试点20张图片另以只读 CAS hash／实际解码复核，观察到200输入、1254原生结果及2048后处理，新增请求为0；不将这些旧结果冒充新通道的实调验收。
+
+2026-11-15 E01–E07的最终完整回归为 **22/22 PASS**，零失败／取消／跳过，类型检查PASS；运行前后60份源码/测试/配置快照一致，source_stability=PASS。新增5个工程场景覆盖7份本地草案，包含目标与需求同时改变后的旧图采纳、新增必检项后的收口拦截、样张内容门槛、冲突回读、像素修补与9图/2图包。两处SKILL入口校验通过，CLI help可发现16个新增命令。本轮0次真实图像请求，隔离语义夹具不代表商品质量验收。
 
 2026-11-15 另经用户明确确认私网 HTTP 传输、素材外发与费用后，使用当前已选服务完成一次 `gpt-image-2` 原生通道实调：executor-profile → 冻结计划 → host-human 授权（最多1次）→ run execute-api → 原始图片保全。输入为256×256合成蓝色方块，size=auto，实际返回1254×1254 PNG（1,063,381字节）；CAS SHA-256 与实际解码尺寸一致。一次请求、零自动重试，重新打开工作区后能从 brief 与原生工件独立接手，business_health=PASS。执行保持 waiting_for_review，未代填用户接受、交付或项目完结。完整本地证据为 service-live.json；公开摘要不含服务地址或凭证。
 
@@ -48,8 +51,15 @@ node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 | 受保护配置 | Codex 配置读取须授权、provider/workspace 绑定；不复制密钥、不复用 OAuth，不自动付费探测；公共 HTTP 与伪私网域名拒绝 |
 | 商品事实 | 200px／缺表头／AI补绘与视觉接受不提升规格；概念／实物门槛、闭合抽屉、必要字段的值／单位／对象进入实际提示词、ZIP/clone 保全 |
 | 原始评分 | 8/10 与旧4/5 各自保留，未知下限／刻度为 null；分组均分、有效评分分母、恢复去重、缺能力声明拒绝 |
+| E03/E07 | 目标和需求均变化后显式复用旧hash，不继承旧接受/交付；并发revision、unknown保护；图像/设计关闭事务挂有效证据，doctor.node_evidence通过 |
+| E01/E02 | 七图不计用途覆盖；逐项FAIL/UNKNOWN；样张缺内容时拦截后续dispatch；用户直接扩套原文；冲突回读、创作/事实区分、局部任务失效与ZIP恢复 |
+| E04 | 必检FAIL/UNKNOWN不能被总体PASS绕过；修正保留旧图；已经交付但新增必检项后仍不能直接关闭任务 |
+| E05 | 实际像素只变批准矩形、透明孔洞、多输入与字体CAS、含&及尖括号的文字；越界/拉伸/缺字体诊断、2048独立后处理、重放和ZIP恢复 |
+| E06 | 7图替换2张再扩9图，旧快照可读；部分接受不升级整套；同快照9图/新增2图包、总览与hash一致，跨项目拒绝、预览不可作为工作区导入 |
 
 最新完整报告在本地 `docs/verification/native-wrapper-tests.json`，API／文档／试点定向报告分别为 api-tests.json、documents-tests.json、issues-tests.json，不可变报告在 `docs/verification/runs/`；包括实际退出码、TAP 计数、源码 hash、架构标识和原生证据。完整 PASS 要求零失败、零取消、零跳过，且 wrapper、文档、试点与 API 本机模拟证据都 PASS；定向套件不代替完整回归。真实图片尺寸复核在 real-dimensions.json，服务实调另列独立报告；`--unit-only` 明确标记原生集成 NOT_RUN。
+
+E01–E07专项报告为engineering-tests.json，完整PASS还要求native_engineering_evidence=PASS。测试入口输出逐项进度并比较运行前后源码指纹，source_stability不为PASS时不作为最终验收；仍以最新完整报告的源码指纹为准，不拿早期专项或中间运行代替最终结果。文字测试使用RETOUCH_TEST_FONT，Windows默认WINDIR/Fonts/arial.ttf；缺少字体时明确失败，不安装或静默替换字体。隔离检查的语义结论是明确的测试输入，不冒充真实商品用途或结构已通过视觉验收。
 
 演示工具通过原生工作流处理两张本地夹具图片并交付 PNG/manifest，报告在 `offline-demo.json`。[演示对照图](../demo/offline-workflow.png) 展示原图、第一步及第二步实际结果，不能作为 AI 商品图效果或用户满意度证明。
 

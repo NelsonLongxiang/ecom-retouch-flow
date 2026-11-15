@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 const root = await fs.realpath(fileURLToPath(new URL("../", import.meta.url)));
 const args = process.argv.slice(2);
 let entry = process.env.RETOUCH_YGL_ENTRY,
@@ -12,6 +13,7 @@ let entry = process.env.RETOUCH_YGL_ENTRY,
   apiOnly = false,
   documentsOnly = false,
   issuesOnly = false;
+let engineeringOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -26,13 +28,17 @@ for (let index = 0; index < args.length; index++) {
   } else if (args[index] === "--suite" && args[index + 1] === "issues") {
     issuesOnly = true;
     index++;
+  } else if (args[index] === "--suite" && args[index + 1] === "engineering") {
+    engineeringOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (
   Number(legacy) +
     Number(apiOnly) +
     Number(documentsOnly) +
-    Number(issuesOnly) >
+    Number(issuesOnly) +
+    Number(engineeringOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -57,7 +63,9 @@ const files = (await fs.readdir(path.join(root, "tests")))
             ? name.startsWith("native-documents")
             : issuesOnly
               ? name.startsWith("native-issues")
-              : name.startsWith("native-")),
+              : engineeringOnly
+                ? name.startsWith("native-engineering")
+                : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -67,6 +75,7 @@ const command = [
   "--test-reporter=tap",
   ...files,
 ];
+const initialSnapshots = await collectSnapshots();
 const started = new Date().toISOString();
 const child = spawn(process.execPath, command, {
   cwd: root,
@@ -81,12 +90,24 @@ const child = spawn(process.execPath, command, {
 });
 let stdout = "",
   stderr = "";
+const stdoutDecoder = new StringDecoder("utf8"),
+  stderrDecoder = new StringDecoder("utf8");
+let progressBuffer = "";
 child.stdout.on("data", (chunk) => {
-  stdout += chunk;
+  const text = stdoutDecoder.write(chunk);
+  stdout += text;
+  progressBuffer += text;
+  const lines = progressBuffer.split("\n");
+  progressBuffer = lines.pop();
+  for (const line of lines)
+    if (/^(?:ok|not ok) \d+ - /.test(line))
+      process.stdout.write(JSON.stringify({ test: line }) + "\n");
 });
 child.stderr.on("data", (chunk) => {
-  stderr += chunk;
+  stderr += stderrDecoder.write(chunk);
 });
+stdout += stdoutDecoder.end();
+stderr += stderrDecoder.end();
 const exitCode = await new Promise((resolve, reject) => {
   child.on("error", reject);
   child.on("close", (code) => resolve(code));
@@ -140,7 +161,17 @@ const issuesEvidence =
         .readFile(path.join(runRoot, "native-issues-evidence.json"), "utf8")
         .then(JSON.parse)
         .catch(() => null);
-const passed =
+const engineeringEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(
+          path.join(runRoot, "native-engineering-evidence.json"),
+          "utf8",
+        )
+        .then(JSON.parse)
+        .catch(() => null);
+let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
   counts.fail === 0 &&
@@ -156,41 +187,51 @@ const passed =
             ? documentsEvidence?.verdict === "PASS"
             : issuesOnly
               ? issuesEvidence?.verdict === "PASS"
-              : wrapperEvidence?.verdict === "PASS" &&
-                apiEvidence?.verdict === "PASS" &&
-                documentsEvidence?.verdict === "PASS" &&
-                issuesEvidence?.verdict === "PASS")));
-const snapshots = [];
-async function snapshot(directory) {
-  for (const item of await fs.readdir(path.join(root, directory), {
-    withFileTypes: true,
-  })) {
-    const file = path.join(directory, item.name);
-    if (item.isDirectory()) await snapshot(file);
-    else
-      snapshots.push({
-        file: file.replaceAll("\\", "/"),
-        sha256: crypto
-          .createHash("sha256")
-          .update(await fs.readFile(path.join(root, file)))
-          .digest("hex"),
-      });
+              : engineeringOnly
+                ? engineeringEvidence?.verdict === "PASS"
+                : wrapperEvidence?.verdict === "PASS" &&
+                  apiEvidence?.verdict === "PASS" &&
+                  documentsEvidence?.verdict === "PASS" &&
+                  issuesEvidence?.verdict === "PASS" &&
+                  engineeringEvidence?.verdict === "PASS")));
+async function collectSnapshots() {
+  const snapshots = [];
+  async function snapshot(directory) {
+    for (const item of await fs.readdir(path.join(root, directory), {
+      withFileTypes: true,
+    })) {
+      const file = path.join(directory, item.name);
+      if (item.isDirectory()) await snapshot(file);
+      else
+        snapshots.push({
+          file: file.replaceAll("\\", "/"),
+          sha256: crypto
+            .createHash("sha256")
+            .update(await fs.readFile(path.join(root, file)))
+            .digest("hex"),
+        });
+    }
   }
+  for (const directory of ["src", "tests"]) await snapshot(directory);
+  for (const file of [
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "scripts/test.mjs",
+  ])
+    snapshots.push({
+      file,
+      sha256: crypto
+        .createHash("sha256")
+        .update(await fs.readFile(path.join(root, file)))
+        .digest("hex"),
+    });
+  return snapshots.sort((a, b) => a.file.localeCompare(b.file));
 }
-for (const directory of ["src", "tests"]) await snapshot(directory);
-for (const file of [
-  "package.json",
-  "package-lock.json",
-  "tsconfig.json",
-  "scripts/test.mjs",
-])
-  snapshots.push({
-    file,
-    sha256: crypto
-      .createHash("sha256")
-      .update(await fs.readFile(path.join(root, file)))
-      .digest("hex"),
-  });
+const snapshots = await collectSnapshots();
+const sourceStable =
+  JSON.stringify(initialSnapshots) === JSON.stringify(snapshots);
+passed = passed && sourceStable;
 const report = {
   schema: "retouch.implementation-tests/v1",
   verdict: passed ? "PASS" : "FAIL",
@@ -213,7 +254,10 @@ const report = {
       ? "NATIVE_DOCUMENTS"
       : issuesOnly
         ? "RETROSPECTIVE_ISSUES"
-        : "FULL",
+        : engineeringOnly
+          ? "ENGINEERING_CONTRACTS"
+          : "FULL",
+  native_engineering_evidence: engineeringEvidence,
   native_issues_evidence: issuesEvidence,
   native_documents_evidence: documentsEvidence,
   native_api_evidence: apiEvidence,
@@ -229,6 +273,8 @@ const report = {
     malicious_agent_sandbox: "NOT_CLAIMED",
   },
   snapshots,
+  initial_snapshots: initialSnapshots,
+  source_stability: sourceStable ? "PASS" : "FAIL",
 };
 await fs.mkdir(path.join(root, "docs/verification"), { recursive: true });
 await fs.mkdir(path.join(root, "docs/verification/runs"), { recursive: true });
@@ -248,9 +294,11 @@ const output = path.join(
         ? "documents-tests.json"
         : issuesOnly
           ? "issues-tests.json"
-          : unitOnly
-            ? "unit-tests.json"
-            : "native-wrapper-tests.json",
+          : engineeringOnly
+            ? "engineering-tests.json"
+            : unitOnly
+              ? "unit-tests.json"
+              : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);

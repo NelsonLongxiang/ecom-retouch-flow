@@ -210,6 +210,20 @@ export function apiPrompt(step, requirements, preserve) {
     "有效需求：\n" +
       requirements.map((g) => "[" + g.scope + "] " + g.text).join("\n"),
     "保持项：\n" + preserve.join("\n"),
+    ...((step.content_obligations ?? []).length
+      ? [
+          "本图须讲清的业务内容：\n" +
+            step.content_obligations.map((o) => o.text).join("\n"),
+        ]
+      : []),
+    ...((step.invariant_items ?? []).length
+      ? [
+          "逐项商品保持要求：\n" +
+            step.invariant_items
+              .map((i) => i.text + "；适用范围：" + i.scope)
+              .join("\n"),
+        ]
+      : []),
     ...(step.region
       ? [
           "允许编辑区域（输入像素坐标）：" +

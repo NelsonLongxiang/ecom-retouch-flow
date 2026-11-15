@@ -11,6 +11,7 @@ import {
 import { NativeClient } from "./client.ts";
 import { objectBytes, putObject } from "./files.ts";
 import { Images } from "../adapters/images.ts";
+import { fontInfo } from "./fonts.ts";
 export function contextCapabilities(snapshot: any): string[] {
   const artifacts = snapshot.tables.artifacts;
   const has = (predicate: (a: any, m: any, c: any) => boolean) =>
@@ -25,6 +26,36 @@ export function contextCapabilities(snapshot: any): string[] {
     "ygl-native-project/v1",
     "media-sha256",
     "historical-permission-isolation",
+    ...(has(
+      (a, m) =>
+        m.context_epoch > 0 ||
+        m.retouch?.context_epoch > 0 ||
+        m.role === "result-revalidation",
+    )
+      ? ["retouch-result-revalidation/v1"]
+      : []),
+    ...(has((a, m) =>
+      [
+        "business-intent",
+        "coverage-check",
+        "evidence-conflict",
+        "product-invariants",
+        "invariants-check",
+      ].includes(m.role),
+    )
+      ? ["retouch-flow-contracts/v1"]
+      : []),
+    ...(has(
+      (a, m) =>
+        m.role === "font" || m.role === "local-postprocess" || !!m.transform,
+    )
+      ? ["retouch-postprocess/v1"]
+      : []),
+    ...(has((a, m) =>
+      ["suite-snapshot", "suite-acceptance", "suite-export"].includes(m.role),
+    )
+      ? ["retouch-suite/v1"]
+      : []),
     ...(has((a) => a.kind === "executor-profile")
       ? ["retouch-api-fallback/v1"]
       : []),
@@ -171,6 +202,10 @@ export async function inspectProject(file: string) {
           "retouch-private-http/v1",
           "retouch-configuration-source/v1",
           "retouch-dimensions/v1",
+          "retouch-result-revalidation/v1",
+          "retouch-flow-contracts/v1",
+          "retouch-postprocess/v1",
+          "retouch-suite/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",
@@ -257,6 +292,13 @@ export async function inspectProject(file: string) {
         1,
       );
     }
+    if (a.kind === "resource" && m.role === "font")
+      requireThat(
+        fontInfo(bytes).family === m.family,
+        "ZIP_FONT",
+        "字体字节与登记family不匹配",
+        1,
+      );
   }
   requireThat(
     [...entries.keys()].every((name) => needed.has(name)),

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { NativeClient } from "./native/client.ts";
 import { exportDocument } from "./native/documents.ts";
+import { registerFont, transform } from "./native/postprocess.ts";
+import { exportSuite } from "./native/suite.ts";
 import {
   registerExecutor,
   checkExecutor,
@@ -72,6 +74,97 @@ type Command = {
   readonly?: boolean;
 };
 const commands: Record<string, Command> = {
+  "intent set": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "声明用途、内容义务和样张/直接扩套策略",
+    action: "intent-set",
+  },
+  "coverage show": {
+    operands: 0,
+    flags: ["project"],
+    description: "实际图片的业务内容覆盖与未评估缺口",
+    action: "coverage-view",
+    readonly: true,
+  },
+  "coverage review": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "逐项检查实际图片内容并保存观察证据",
+    action: "coverage-check",
+  },
+  "conflict record": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "保存同字段多来源候选与未决冲突",
+    action: "conflict-set",
+  },
+  "conflict resolve": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "回读证据后显式选用或暂缓，保留旧裁决",
+    action: "conflict-resolve",
+  },
+  "conflict list": {
+    operands: 0,
+    flags: ["project"],
+    description: "读取未决与已裁决的来源冲突",
+    action: "conflicts-view",
+    readonly: true,
+  },
+  "invariant set": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "为任务声明有来源和适用范围的商品保持项",
+    action: "invariants-set",
+  },
+  "invariant review": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "逐项核验实际候选的保持项，允许UNKNOWN",
+    action: "invariants-check",
+  },
+  "invariant show": {
+    operands: 1,
+    flags: ["project"],
+    description: "读取实际候选的保持项检查状态",
+    action: "invariant-view",
+    readonly: true,
+  },
+  "asset font": {
+    operands: 0,
+    flags: ["project", "file", "request-id"],
+    description: "登记显式字体文件和实际CAS指纹",
+  },
+  "asset transform": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "声明式本地裁切/蒙版/修补/合成/文字/缩放",
+  },
+  "suite snapshot": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "冻结稳定槽位的套图选版",
+    action: "suite-snapshot",
+  },
+  "suite show": {
+    operands: 1,
+    flags: ["project"],
+    description: "读取套图快照、逐槽接受及当前适用性",
+    action: "suite-view",
+    readonly: true,
+  },
+  "suite accept": {
+    operands: 1,
+    flags: ["project", "file", "request-id"],
+    description: "用户按实际hash接受明确槽位范围",
+    action: "suite-accept",
+  },
+  "suite export": {
+    operands: 1,
+    flags: ["project", "file", "to", "request-id"],
+    description: "从同一快照导出完整/增量预览或正式图片包",
+  },
   "workspace init": {
     operands: 1,
     flags: ["ygl-entry"],
@@ -185,6 +278,12 @@ const commands: Record<string, Command> = {
     flags: ["project", "file", "expected-revision", "request-id"],
     description: "显式复核并绑定新的目标版本；保留历史结果",
     action: "task-context-review",
+  },
+  "artifact revalidate": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "显式复核已有结果对当前目标的适用性，不继承旧接受",
+    action: "result-revalidate",
   },
   "requirement set": {
     operands: 1,
@@ -807,6 +906,35 @@ export async function execute(
         request(),
       ),
     );
+  if (command === "asset font")
+    return answer(
+      command,
+      await registerFont(client, needProject(), required("file"), request()),
+    );
+  if (command === "asset transform")
+    return answer(
+      command,
+      await transform(
+        client,
+        needProject(),
+        words[0],
+        await body(),
+        revision(),
+        request(),
+      ),
+    );
+  if (command === "suite export")
+    return answer(
+      command,
+      await exportSuite(
+        client,
+        needProject(),
+        words[0],
+        required("to"),
+        await body(),
+        request(),
+      ),
+    );
   if (command === "artifact deliver")
     return answer(
       command,
@@ -934,6 +1062,8 @@ export async function execute(
         "run-start",
         "task-close",
         "task-context-review",
+        "invariants-set",
+        "suite-snapshot",
       ].includes(spec.action)
         ? "task"
         : "id"

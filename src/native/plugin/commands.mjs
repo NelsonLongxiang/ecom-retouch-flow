@@ -7,26 +7,32 @@ import { apiProfile, apiPrompt } from "./api-contract.mjs";
 import { rawRating, effectiveRating } from "./feedback.mjs";
 import { productFacts, factCheck, renderFacts } from "./product-facts.mjs";
 import {
+  taskBinding,
+  sameBinding,
+  mediaApplicable,
+  acceptedReview,
+  deliveryBindingCurrent,
+} from "./applicability.mjs";
+import { stable, digest } from "./value.mjs";
+export { stable, digest } from "./value.mjs";
+import {
+  flowBrief,
+  planContracts,
+  assertInvariants,
+  invariantView,
+  coverageView,
+  validateFlowSnapshot,
+  assertStepCoverage,
+  latest as latestFlow,
+} from "./flow-contracts.mjs";
+import { flowActions, flowReadActions, flowCommand } from "./flow-commands.mjs";
+import {
   requestedDimensions,
   dimensionView,
   freezeDimension,
 } from "./media-diagnostics.mjs";
 
 export const SCHEMA = "retouch.native/v1";
-export const stable = (value) =>
-  Array.isArray(value)
-    ? "[" + value.map((v) => stable(v ?? null)).join(",") + "]"
-    : value && typeof value === "object"
-      ? "{" +
-        Object.keys(value)
-          .filter((k) => value[k] !== undefined)
-          .sort()
-          .map((k) => JSON.stringify(k) + ":" + stable(value[k]))
-          .join(",") +
-        "}"
-      : JSON.stringify(value ?? null);
-export const digest = (value) =>
-  crypto.createHash("sha256").update(stable(value)).digest("hex");
 const uid = () => crypto.randomUUID().replaceAll("-", "");
 const timestamp = () => new Date().toISOString();
 export function check(ok, code, message, rc = 2) {
@@ -466,43 +472,45 @@ export function pendingExecution(a, artifacts) {
     }),
   );
 }
-function currentImageDelivery(t, artifacts) {
+function currentImageDeliveries(t, artifacts) {
   const tr = json(t.meta).retouch;
-  return artifacts.some((x) => {
+  return artifacts.filter((x) => {
     const m = json(x.meta);
     if (m.task_id !== t.id || m.status !== "completed") return false;
-    if (x.kind === "execution")
+    if (x.kind === "execution") {
+      const image = artifacts.find((a) => a.id === m.accepted_id);
       return (
         m.role === "workflow-run" &&
         m.plan_id === tr.plan_id &&
         m.goal_id === tr.goal_id &&
-        json(x.content).requirements_hash === digest(tr.requirements)
+        json(x.content).requirements_hash === digest(tr.requirements) &&
+        image &&
+        ["PASS", "NOT_DECLARED"].includes(
+          invariantView(artifacts, image, t).status,
+        )
       );
+    }
     if (x.kind !== "delivery") return false;
     const image = artifacts.find((a) => a.id === m.media_id),
       im = image && json(image.meta);
     return (
       im &&
       im.task_id === t.id &&
-      im.goal_id === tr.goal_id &&
+      mediaApplicable(image, t, artifacts, digest) &&
+      deliveryBindingCurrent(x, image, t, digest) &&
       m.sha256 === im.sha256 &&
       /^[a-f0-9]{64}$/.test(m.manifest_sha256) &&
-      (!im.requirements_hash ||
-        im.requirements_hash === digest(tr.requirements)) &&
+      ["PASS", "NOT_DECLARED"].includes(
+        invariantView(artifacts, image, t).status,
+      ) &&
       artifacts.some((r) => {
-        const rm = json(r.meta);
-        return (
-          r.kind === "review" &&
-          rm.media_id === image.id &&
-          rm.sha256 === im.sha256 &&
-          rm.accepted === true &&
-          rm.source === "user" &&
-          rm.verdict === "PASS"
-        );
+        return acceptedReview(r, image, t, artifacts, digest);
       })
     );
   });
 }
+const currentImageDelivery = (t, artifacts) =>
+  currentImageDeliveries(t, artifacts).length > 0;
 function businessHealth(artifacts, tasks) {
   const findings = [];
   for (const a of artifacts) {
@@ -528,7 +536,9 @@ function businessHealth(artifacts, tasks) {
         artifact_id: a.id,
         task_id: m.task_id,
         next_action:
-          "replay original delivery or delivery abandon after inspection",
+          m.role === "suite-export"
+            ? "replay same suite export key and file"
+            : "replay original delivery or delivery abandon after inspection",
       });
   }
   for (const t of tasks) {
@@ -592,12 +602,8 @@ async function brief(mgr, p) {
           x.kind === "media" &&
           !["original", "reference", "working"].includes(json(x.meta).role),
       );
-      const currentCandidates = candidates.filter(
-        (x) =>
-          json(x.meta).goal_id === meta.retouch.goal_id &&
-          (!json(x.meta).requirements_hash ||
-            json(x.meta).requirements_hash ===
-              digest(meta.retouch.requirements)),
+      const currentCandidates = candidates.filter((x) =>
+        mediaApplicable(x, a, artifacts, digest),
       );
       const goal = artifacts.find((x) => x.id === meta.retouch?.goal_id),
         stale =
@@ -614,17 +620,13 @@ async function brief(mgr, p) {
           .filter(
             (x) =>
               x.kind === "review" &&
-              json(x.meta).accepted &&
-              json(x.meta).source === "user",
+              currentCandidates.some((image) =>
+                acceptedReview(x, image, a, artifacts, digest),
+              ),
           )
           .map((x) => json(x.meta).media_id),
       );
-      const delivered = linked.some(
-        (x) =>
-          x.kind === "delivery" &&
-          json(x.meta).status === "completed" &&
-          currentCandidates.some((c) => c.id === json(x.meta).media_id),
-      );
+      const delivered = currentImageDelivery(a, artifacts);
       const progress = unknown
         ? "unknown"
         : stale
@@ -639,10 +641,12 @@ async function brief(mgr, p) {
                   ? "accepted"
                   : currentCandidates.length
                     ? "waiting_for_review"
-                    : meta.retouch?.kind === "design" &&
-                        linked.some((x) => x.kind === "design")
-                      ? "design_document_only"
-                      : "planned";
+                    : candidates.length
+                      ? "result_needs_review"
+                      : meta.retouch?.kind === "design" &&
+                          linked.some((x) => x.kind === "design")
+                        ? "design_document_only"
+                        : "planned";
       return {
         ...a,
         meta,
@@ -681,6 +685,7 @@ async function brief(mgr, p) {
       .map((a) => documentDescriptor(a, artifacts))
       .filter((a) => a.status !== "superseded"),
     business_health: businessHealth(artifacts, tasks),
+    ...flowBrief(artifacts),
     dimension_diagnostics: dimensionView(artifacts),
     executor_profiles: artifacts
       .filter((a) => a.kind === "executor-profile")
@@ -775,6 +780,7 @@ export async function run(env, action, rest, args) {
       ds = await api.getOrm(env.db.path);
     const b = req.body;
     const readOnly = [
+      ...flowReadActions,
       "capabilities",
       "workspace-list",
       "projects",
@@ -1134,6 +1140,13 @@ export async function run(env, action, rest, args) {
               "完结原因须为 achieved/stopped/remaining",
             );
             const view = await brief(mgr, p);
+            if (b.reason === "achieved")
+              check(
+                ["PASS", "NOT_DECLARED"].includes(view.content_coverage.status),
+                "CONTENT_COVERAGE",
+                "内容覆盖未通过，不能声称目标全部达成",
+                1,
+              );
             patch = {
               completion: {
                 reason: b.reason,
@@ -1406,6 +1419,21 @@ async function updateExecution(mgr, a, meta, expected) {
   return { ...a, meta: stable(meta) };
 }
 async function workflow({ mgr, api, p, node, b, action }) {
+  if (flowActions.includes(action))
+    return flowCommand(action, b, {
+      mgr,
+      api,
+      p,
+      node,
+      append,
+      artifact,
+      task,
+      currentTask,
+      relation,
+      updateTask,
+      noUnknown,
+      invalidateDocumentTasks,
+    });
   if (action === "executor-observe") {
     check(
       ["available", "unavailable", "unknown"].includes(b.state),
@@ -1709,6 +1737,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
     meta.retouch.plan_id = null;
     meta.retouch.active_run = null;
     meta.retouch.context_status = "current";
+    meta.retouch.context_epoch = (meta.retouch.context_epoch ?? 0) + 1;
     meta.retouch.context_review = text(b.statement, "上下文复核依据");
     if (meta.status === "done") {
       meta.status = "todo";
@@ -1716,6 +1745,68 @@ async function workflow({ mgr, api, p, node, b, action }) {
     }
     await relation(mgr, "task", a.id, "artifact", g.id, "specified-by");
     return { task: await updateTask(mgr, a, meta, b.expected_revision) };
+  }
+  if (action === "result-revalidate") {
+    const { a: t, meta: tm } = await currentTask(mgr, p, b.task);
+    await noUnknown(mgr, p, t.id);
+    const image = await media(mgr, p, b.id),
+      im = json(image.meta);
+    check(
+      im.task_id === t.id && !["original", "reference"].includes(im.role),
+      "MEDIA_BINDING",
+      "只能复核当前任务已有的结果",
+    );
+    check(
+      b.sha256 === im.sha256 && ["adopt", "reject"].includes(b.decision),
+      "REVALIDATION",
+      "复核须绑定真实hash及adopt/reject结论",
+    );
+    check(
+      b.goal_id === tm.retouch.goal_id &&
+        b.requirements_hash === digest(tm.retouch.requirements),
+      "REVALIDATION_CONTEXT",
+      "须绑定已读取的当前目标和需求",
+      1,
+    );
+    const binding = taskBinding(t, digest);
+    const review = await append(
+      mgr,
+      p,
+      "review",
+      "Result revalidation " + image.id,
+      text(b.statement, "适用性复核理由"),
+      {
+        schema: SCHEMA,
+        role: "result-revalidation",
+        ...binding,
+        media_id: image.id,
+        sha256: im.sha256,
+        decision: b.decision,
+        reviewer: text(b.reviewer, "复核人"),
+        source: text(b.source, "来源"),
+        accepted: false,
+      },
+    );
+    await relation(
+      mgr,
+      "artifact",
+      image.id,
+      "artifact",
+      review.id,
+      "reviewed-by",
+    );
+    await relation(
+      mgr,
+      "artifact",
+      review.id,
+      "artifact",
+      binding.goal_id,
+      "specified-by",
+    );
+    return {
+      artifact: review,
+      task: await updateTask(mgr, t, tm, b.expected_revision),
+    };
   }
   if (action === "media") {
     const t = await task(mgr, p, b.task);
@@ -1754,6 +1845,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
       goal_id: t.meta.retouch.goal_id,
       goal_version: t.meta.retouch.goal_version,
       requirements_hash: digest(t.meta.retouch.requirements),
+      context_epoch: t.meta.retouch.context_epoch ?? 0,
       sha256: b.sha256,
       bytes: b.bytes,
       width: b.width,
@@ -1763,6 +1855,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
       role: b.role,
       parents: b.parents ?? [],
       operation: b.operation ?? "",
+      ...(b.transform ? { transform: b.transform } : {}),
       confirmation: "unreviewed",
       ...(b.provider_receipt
         ? {
@@ -1803,6 +1896,17 @@ async function workflow({ mgr, api, p, node, b, action }) {
   if (action === "media-review") {
     const a = await media(mgr, p, b.id),
       meta = json(a.meta);
+    const t = await currentTask(mgr, p, meta.task_id);
+    const all = await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+      [p.id],
+    );
+    check(
+      mediaApplicable(a, t.a, all, digest),
+      "MEDIA_STALE",
+      "先复核旧图片对当前目标的适用性",
+      1,
+    );
     check(meta.sha256 === b.sha256, "REVIEW_HASH", "检查须绑定实际素材 hash");
     check(
       ["PASS", "FAIL", "UNKNOWN"].includes(b.verdict),
@@ -1817,6 +1921,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
       text(b.observations, "检查观察"),
       {
         schema: SCHEMA,
+        ...taskBinding(t.a, digest),
         media_id: a.id,
         sha256: b.sha256,
         verdict: b.verdict,
@@ -1830,6 +1935,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
       "USER_ACCEPTANCE",
       "接受必须由用户明确给出，且检查通过",
     );
+    if (b.verdict === "PASS") assertInvariants(all, a, t.a);
     await relation(
       mgr,
       "artifact",
@@ -1844,20 +1950,20 @@ async function workflow({ mgr, api, p, node, b, action }) {
     const a = await media(mgr, p, b.id),
       m = json(a.meta);
     const taskContext = await currentTask(mgr, p, m.task_id);
+    const all = await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+      [p.id],
+    );
     check(
-      m.goal_id === taskContext.meta.retouch.goal_id &&
-        (!m.requirements_hash ||
-          m.requirements_hash ===
-            digest(taskContext.meta.retouch.requirements)),
+      mediaApplicable(a, taskContext.a, all, digest),
       "MEDIA_STALE",
       "图片对应的目标或需求已变化，先复核适用性",
       1,
     );
-    const accepted = await one(
-      mgr,
-      "SELECT a.* FROM relations r JOIN artifacts a ON a.id=r.dst_id WHERE r.src_id=? AND r.rel='accepted-by' AND a.kind='review'",
-      [a.id],
+    const accepted = all.find((r) =>
+      acceptedReview(r, a, taskContext.a, all, digest),
     );
+    assertInvariants(all, a, taskContext.a);
     check(
       accepted &&
         json(accepted.meta).accepted === true &&
@@ -1868,7 +1974,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
     );
     const delivery = await append(mgr, p, "delivery", "Delivery " + a.id, "", {
       schema: SCHEMA,
-      task_id: m.task_id,
+      ...taskBinding(taskContext.a, digest),
       media_id: a.id,
       sha256: m.sha256,
       directory: text(b.directory, "交付目录"),
@@ -2120,9 +2226,20 @@ async function workflow({ mgr, api, p, node, b, action }) {
         factsCheck.step_checks.find((c) => c.step_id === step.id),
       );
     }
+    const contracts = planContracts(
+      await mgr.query(
+        "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+        [p.id],
+      ),
+      steps,
+      purpose,
+      b.stage,
+      a.id,
+    );
     const body = {
       schema: SCHEMA,
       role: "workflow-plan",
+      contracts,
       purpose,
       facts_id: facts?.id ?? null,
       facts_version: facts?.version ?? null,
@@ -2204,6 +2321,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
     }
     await refreshGraph(mgr, api, node.tree_id);
     meta.retouch.plan_id = plan.id;
+    meta.retouch.intent_id = contracts.intent_id;
     meta.retouch.purpose = purpose;
     meta.retouch.facts_id = facts?.id ?? null;
     meta.retouch.fact_keys = factsCheck.required_keys;
@@ -2426,6 +2544,36 @@ async function workflow({ mgr, api, p, node, b, action }) {
       );
       const step = plan.steps[meta.step];
       check(step, "RUN_FINISHED", "已无待执行步骤", 1);
+      if (plan.contracts) {
+        const all = await mgr.query(
+          "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+          [p.id],
+        );
+        const coverage = coverageView(all);
+        check(
+          coverage.contract_id === plan.contracts.intent_id,
+          "PLAN_STALE",
+          "业务内容规范已变化",
+          1,
+        );
+        check(
+          (latestFlow(all, "product-invariants", meta.task_id)?.id ?? null) ===
+            plan.contracts.invariants_id,
+          "PLAN_STALE",
+          "商品保持项规范已变化",
+          1,
+        );
+        if (meta.step > 0 && coverage.rollout?.mode === "sample-first")
+          check(
+            coverage.rollout.representative_ids.every(
+              (id) =>
+                coverage.items.find((i) => i.id === id)?.verdict === "PASS",
+            ),
+            "CONTENT_SAMPLE_REQUIRED",
+            "继续扩套前先完成实际样张的内容覆盖检查",
+            1,
+          );
+      }
       const input = await media(mgr, p, meta.input_id);
       const references = [];
       for (const ref of step.references ?? [])
@@ -2824,6 +2972,21 @@ async function workflow({ mgr, api, p, node, b, action }) {
         1,
       );
       const candidate = await media(mgr, p, meta.candidate);
+      if (b.verdict === "PASS") {
+        const all = await mgr.query(
+            "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+            [p.id],
+          ),
+          t = (await currentTask(mgr, p, meta.task_id)).a;
+        assertInvariants(all, candidate, t);
+        assertStepCoverage(
+          all,
+          candidate,
+          t,
+          plan.steps[meta.step],
+          plan.contracts?.intent_id,
+        );
+      }
       check(
         b.sha256 === json(candidate.meta).sha256 &&
           ["PASS", "FAIL", "UNKNOWN"].includes(b.verdict),
@@ -2897,6 +3060,14 @@ async function workflow({ mgr, api, p, node, b, action }) {
         1,
       );
       const candidate = await media(mgr, p, meta.outputs.at(-1));
+      assertInvariants(
+        await mgr.query(
+          "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+          [p.id],
+        ),
+        candidate,
+        t.a,
+      );
       check(
         b.sha256 === json(candidate.meta).sha256 && b.source === "user",
         "ACCEPTANCE",
@@ -2910,6 +3081,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
         text(b.statement, "用户接受原文"),
         {
           schema: SCHEMA,
+          ...taskBinding(t.a, digest),
           accepted: true,
           sha256: b.sha256,
           media_id: candidate.id,
@@ -2928,6 +3100,15 @@ async function workflow({ mgr, api, p, node, b, action }) {
       meta.accepted_id = candidate.id;
     } else if (action === "run-deliver") {
       const taskContext = await currentTask(mgr, p, meta.task_id);
+      if (meta.accepted_id)
+        assertInvariants(
+          await mgr.query(
+            "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+            [p.id],
+          ),
+          await media(mgr, p, meta.accepted_id),
+          taskContext.a,
+        );
       check(
         taskContext.meta.retouch.plan_id === meta.plan_id,
         "PLAN_STALE",
@@ -3014,6 +3195,44 @@ async function workflow({ mgr, api, p, node, b, action }) {
       [node.tree_id, "task-" + a.id],
     );
     check(taskNode, "TASK_NODE", "任务缺少原生节点", 1);
+    const evidence =
+      meta.retouch.kind === "image"
+        ? currentImageDeliveries(a, artifacts)
+        : linked.filter(
+            (x) =>
+              x.kind === "design" &&
+              (!meta.retouch.design_id || x.id === meta.retouch.design_id),
+          );
+    check(evidence.length, "TASK_EVIDENCE", "完成任务必须关联当前有效产物", 1);
+    for (const item of evidence) {
+      await relation(
+        mgr,
+        "node",
+        taskNode.id,
+        "artifact",
+        item.id,
+        "evidenced-by",
+      );
+      const em = json(item.meta);
+      if (em.media_id)
+        await relation(
+          mgr,
+          "node",
+          taskNode.id,
+          "artifact",
+          em.media_id,
+          "evidenced-by",
+        );
+      if (em.accepted_id)
+        await relation(
+          mgr,
+          "node",
+          taskNode.id,
+          "artifact",
+          em.accepted_id,
+          "evidenced-by",
+        );
+    }
     await stepState(mgr, node.tree_id, "default", taskNode.id, "unlocked");
     return { task: await updateTask(mgr, a, meta, b.expected_revision) };
   }
@@ -3198,6 +3417,7 @@ export function validateSnapshot(s) {
     "SNAPSHOT_RELATIONS",
     "关系端点无效",
   );
+  validateFlowSnapshot(t.artifacts);
   for (const a of t.artifacts) {
     const m = json(a.meta);
     if (a.kind === "profile" && json(a.content).rating_record)
@@ -3292,6 +3512,9 @@ export function validateSnapshot(s) {
       "grant_id",
       "media_id",
       "profile_id",
+      "contract_id",
+      "suite_id",
+      "snapshot_id",
     ])
       if (m[key])
         check(
@@ -3463,6 +3686,14 @@ async function restore(mgr, api, b) {
       return v;
     }
     t = remap(t);
+    for (const a of t.artifacts) {
+      const m = json(a.meta);
+      if (m.contract_id) {
+        const contract = t.artifacts.find((x) => x.id === m.contract_id);
+        m.contract_hash = digest(contract.content);
+        a.meta = stable(m);
+      }
+    }
     for (const a of t.artifacts) {
       if (
         !["spec", "execution"].includes(a.kind) ||

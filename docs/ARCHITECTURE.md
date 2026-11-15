@@ -21,6 +21,8 @@
 
 试点补充仍使用既有原生表：product-facts 为 spec，原始量表在版本化 profile，宿主能力观察为 executor-observation，配置来源与私网 HTTP 策略在 executor-profile；不新增事实库或诊断账本。业务健康与尺寸链是从当前原生工件派生的视图。计划冻结所用事实版本/hash、用途和字段边界；交付保存尺寸来源快照。新语义由 ZIP requires 声明，旧工具不能静默忽略。操作及验证契约见 [试点验收](ISSUE-ACCEPTANCE.md)。
 
+E01–E07继续复用既有实体：business-intent/evidence-conflict/product-invariants/suite-snapshot为原生spec，逐项检查与result-revalidation为review，本地变换为execution与media，字体为带CAS的resource。flow-contracts只派生检查视图，flow-commands在既有原生事务中追加工件及关系；没有独立覆盖索引、后处理账本或套图数据库。上下文epoch用于隔离旧接受；关闭任务先挂当前有效证据再解锁。具体行为和交换能力见 [流程契约](ENGINEERING-CONTRACTS.md)。
+
 API 传输位于 `src/native/api.ts`，共用无凭证协议校验在插件 api-contract 中。完整编译提示词、传输 PNG／mask、唯一调用意图先落原生事实，随后才发送一次。凭证仅在传输进程读取；原生子进程不继承密钥变量。原图与去敏提供商回执先随 media 保全，再登记接收状态；状态写入失败时可从原生媒体事实恢复，不重新出图。本地恢复回执按执行 ID 隔离，clone 不会混用源项目的已执行回执。参见 [API 协议](API-FALLBACK.md)。
 
 `workspace.json` 只保存本机 ygl 入口、发行包指纹与工作区绑定；业务事实均在 `<workspace>/ygl/ygl-trees.db`。`objects/sha256/` 存文件字节，`tmp/native-requests/` 是调用请求文件，调用后移除；删除临时文件不影响接手。独立 home 不继承全局 project/tree/PG 或凭证配置。

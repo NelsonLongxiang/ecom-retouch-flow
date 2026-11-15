@@ -46,6 +46,7 @@ export function dimensionView(artifacts, id) {
         sha256: m.sha256,
         parents: m.parents ?? [],
         operation: m.operation ?? null,
+        ...(m.transform ? { transform: m.transform } : {}),
       });
       for (const parent of m.parents ?? [])
         queue.push(media.find((x) => x.id === parent));
