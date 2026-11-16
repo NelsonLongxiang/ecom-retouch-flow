@@ -13,7 +13,8 @@ let entry = process.env.RETOUCH_YGL_ENTRY,
   apiOnly = false,
   documentsOnly = false,
   issuesOnly = false;
-let engineeringOnly = false;
+let engineeringOnly = false,
+  zipOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -31,6 +32,9 @@ for (let index = 0; index < args.length; index++) {
   } else if (args[index] === "--suite" && args[index + 1] === "engineering") {
     engineeringOnly = true;
     index++;
+  } else if (args[index] === "--suite" && args[index + 1] === "zip") {
+    zipOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (
@@ -38,7 +42,8 @@ if (
     Number(apiOnly) +
     Number(documentsOnly) +
     Number(issuesOnly) +
-    Number(engineeringOnly) >
+    Number(engineeringOnly) +
+    Number(zipOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -65,7 +70,9 @@ const files = (await fs.readdir(path.join(root, "tests")))
               ? name.startsWith("native-issues")
               : engineeringOnly
                 ? name.startsWith("native-engineering")
-                : name.startsWith("native-")),
+                : zipOnly
+                  ? name.startsWith("native-zip")
+                  : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -171,6 +178,13 @@ const engineeringEvidence =
         )
         .then(JSON.parse)
         .catch(() => null);
+const zipEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(path.join(runRoot, "native-zip-evidence.json"), "utf8")
+        .then(JSON.parse)
+        .catch(() => null);
 let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -187,13 +201,16 @@ let passed =
             ? documentsEvidence?.verdict === "PASS"
             : issuesOnly
               ? issuesEvidence?.verdict === "PASS"
-              : engineeringOnly
-                ? engineeringEvidence?.verdict === "PASS"
-                : wrapperEvidence?.verdict === "PASS" &&
-                  apiEvidence?.verdict === "PASS" &&
-                  documentsEvidence?.verdict === "PASS" &&
-                  issuesEvidence?.verdict === "PASS" &&
-                  engineeringEvidence?.verdict === "PASS")));
+              : zipOnly
+                ? zipEvidence?.verdict === "PASS"
+                : engineeringOnly
+                  ? engineeringEvidence?.verdict === "PASS"
+                  : wrapperEvidence?.verdict === "PASS" &&
+                    apiEvidence?.verdict === "PASS" &&
+                    documentsEvidence?.verdict === "PASS" &&
+                    issuesEvidence?.verdict === "PASS" &&
+                    engineeringEvidence?.verdict === "PASS" &&
+                    zipEvidence?.verdict === "PASS")));
 async function collectSnapshots() {
   const snapshots = [];
   async function snapshot(directory) {
@@ -254,9 +271,12 @@ const report = {
       ? "NATIVE_DOCUMENTS"
       : issuesOnly
         ? "RETROSPECTIVE_ISSUES"
-        : engineeringOnly
-          ? "ENGINEERING_CONTRACTS"
-          : "FULL",
+        : zipOnly
+          ? "ZIP_SAFETY"
+          : engineeringOnly
+            ? "ENGINEERING_CONTRACTS"
+            : "FULL",
+  native_zip_evidence: zipEvidence,
   native_engineering_evidence: engineeringEvidence,
   native_issues_evidence: issuesEvidence,
   native_documents_evidence: documentsEvidence,
@@ -294,11 +314,13 @@ const output = path.join(
         ? "documents-tests.json"
         : issuesOnly
           ? "issues-tests.json"
-          : engineeringOnly
-            ? "engineering-tests.json"
-            : unitOnly
-              ? "unit-tests.json"
-              : "native-wrapper-tests.json",
+          : zipOnly
+            ? "zip-tests.json"
+            : engineeringOnly
+              ? "engineering-tests.json"
+              : unitOnly
+                ? "unit-tests.json"
+                : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);

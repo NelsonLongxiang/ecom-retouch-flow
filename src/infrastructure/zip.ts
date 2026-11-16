@@ -41,11 +41,28 @@ export async function readZip(file: string): Promise<Map<string, Buffer>> {
   });
 }
 export async function writeZip(file: string, entries: Map<string, Buffer>): Promise<void> {
+  // Validate the entire input before opening a file, including invalid entries late in the map.
+  requireThat(entries.size <= ZIP_LIMITS.entries, 'ZIP_LIMIT', 'ZIP 条目数量超限', 1);
+  const names = new Set<string>(); let total = 0;
+  for (const [name, bytes] of entries) {
+    zipPath(name);
+    requireThat(!names.has(name.toLowerCase()), 'ZIP_COLLISION', 'ZIP 包含重复或大小写碰撞条目：' + name, 1);
+    names.add(name.toLowerCase());
+    total += bytes.length;
+    requireThat(bytes.length <= ZIP_LIMITS.entry && total <= ZIP_LIMITS.expanded, 'ZIP_LIMIT', 'ZIP 条目或解压总量超限', 1);
+  }
   const zip = new yazl.ZipFile();
+  for (const [name, bytes] of entries) zip.addBuffer(bytes, name, { mtime: new Date('2026-01-01T00:00:00Z'), mode: 0o100644, compress: true });
   const output = createWriteStream(file, { flags: 'wx' });
+  let opened = false;
+  output.once('open', () => { opened = true; });
   const finished = pipeline(zip.outputStream, output);
   try {
-    for (const [name, bytes] of entries) { zipPath(name); requireThat(bytes.length <= ZIP_LIMITS.entry, 'ZIP_LIMIT', 'ZIP 条目超限'); zip.addBuffer(bytes, name, { mtime: new Date('2026-01-01T00:00:00Z'), mode: 0o100644, compress: true }); }
     zip.end(); await finished;
-  } catch (error) { (zip.outputStream as import('node:stream').Readable).destroy(); output.destroy(); await finished.catch(() => {}); throw error; }
+  } catch (error) {
+    (zip.outputStream as import('node:stream').Readable).destroy(); output.destroy(); await finished.catch(() => {});
+    // Do not delete a user's target or claim a partial IO write had no side effects.
+    const e = error as NodeJS.ErrnoException;
+    throw new RetouchError(e.code ?? 'ZIP_WRITE', e.message, 1, { partial_file: opened, bytes_written: output.bytesWritten }, opened ? 'committed' : 'none');
+  }
 }

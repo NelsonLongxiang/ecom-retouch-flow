@@ -10,6 +10,7 @@ node scripts/test.mjs --suite api --ygl-entry <已安装的-ygl/dist/bundle/bin.
 node scripts/test.mjs --suite documents --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite issues --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite engineering --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite zip --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
@@ -64,3 +65,11 @@ E01–E07专项报告为engineering-tests.json，完整PASS还要求native_engin
 演示工具通过原生工作流处理两张本地夹具图片并交付 PNG/manifest，报告在 `offline-demo.json`。[演示对照图](../demo/offline-workflow.png) 展示原图、第一步及第二步实际结果，不能作为 AI 商品图效果或用户满意度证明。
 
 这些报告含本机运行路径，不参与 Git 跟踪；公开摘要以对应提交的实际测试报告为依据。真实宿主 AI 端到端、真实商品语义质量、其他服务兼容性、PG、完整系统断电矩阵和恶意同 OS Agent 沙箱未据这些测试宣称通过。
+
+## Issue #13 · ZIP 预检和写入副作用
+
+`--suite zip` 是低层 ZIP 与原生 suite/context 导出的专项入口，报告为本机 `zip-tests.json`；完整回归同样执行这些场景并要求 `native_zip_evidence=PASS`。不需要真实业务图片、服务配置或图像请求。
+
+写入器先检查全部路径、大小写碰撞、条目数量、单项和解压总量，再以 `wx` 创建输出。纯预检失败为 `effectStatus=none`，新目标不存在，已有目标不修改；打开后 IO 中断保留可检查的部分文件，错误保留 IO code，并标 `effectStatus=committed`、`details.partial_file` 和实际 `bytes_written`。它不负责把低层目标当成已验证正式包，不删除已有用户文件。
+
+专项包含正常/空包往返、晚出现的非法条目、保留名/规范字符、已有文件与硬链接保全、读端路径/链接/碰撞/数量/大小/压缩比保护。故障注入先向真实暂存文件写入前缀再返回 EIO，验证部分 IO 与未打开路径错误有别；原生 suite/context 的暂存清理、未发布正式目标、目标目录链接、同键恢复/重导及冲突保全分别验证。软件复验通过不代表真实商品视觉或用户接受。
