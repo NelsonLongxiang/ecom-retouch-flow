@@ -98,7 +98,7 @@ repair按批准矩形替换像素，矩形外的规范化sRGB像素不变；补�
 
 图片包格式为retouch.image-preview/v1或retouch.image-delivery/v1，restorable_workspace=false；它不能冒充retouch.context/v2完整项目包。目标先预检，准备后失败保留原生回执；同键同路径恢复，不覆盖不同内容，完成后重放不改文件。图像请求为0，导出不会自动关闭图像任务。
 
-Issue #12 的 [快照输出编排](SNAPSHOT-OUTPUTS.md) 在suite export上增加可选有限output_profile。旧单ZIP模式不变；新模式目标为独立组件目录，声明式原比例PNG、contain方形sRGB JPEG、变高整页/crop长图、轻量阅读/总览/说明共用冻结选版；extend/encode复用原生postprocess。组件逐个独占发布、完成清单最后写入，准备后故障按committed同键恢复，不声称多文件事务原子性。超限高清长图须显式split并标包外完整性；所有图片包均不可恢复工作区。
+Issue #12 的 [快照输出编排](SNAPSHOT-OUTPUTS.md) 在suite export上增加可选有限output_profile。旧单ZIP模式不变；新模式目标为独立组件目录，声明式原比例PNG、contain方形sRGB JPEG、变高整页/crop长图、轻量阅读/总览/说明共用冻结选版；extend/encode复用原生postprocess。组件逐个独占发布、完成清单最后写入，准备后故障按committed同键恢复，不声称多文件事务原子性。属主确认首版超限只reject、不纳split；输入与全部计划派生合计5000万像素的渲染前准入不等于RSS安全保证。seal后及每个组件/marker前重新核只读原生门禁；marker仅字节完整，当前业务交付仍需原生状态/接受。所有图片包均不可恢复工作区。
 
 ## 交换、验证与范围
 

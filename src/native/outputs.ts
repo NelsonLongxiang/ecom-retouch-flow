@@ -343,7 +343,17 @@ export async function exportOutputs(
       );
     }
     const brief = await c.call("brief", { project });
-    outputProfile(input.output_profile, slots, brief.artifacts);
+    try {
+      outputProfile(input.output_profile, slots, brief.artifacts);
+    } catch (e) {
+      throw new RetouchError(
+        (e as any).code ?? "OUTPUT_PROFILE",
+        (e as Error).message,
+        2,
+        (e as any).details ?? null,
+        "none",
+      );
+    }
     requireThat(
       slots.every((s: any) => s.current),
       "SUITE_MEDIA_STALE",
@@ -366,6 +376,18 @@ export async function exportOutputs(
   const delivery = await c.call("show", { project, id: prepared.delivery.id }),
     dm = JSON.parse(delivery.meta),
     frozen = JSON.parse(delivery.content);
+  if (
+    dm.status !== "completed" &&
+    frozen.output_profile?.overflow === "split"
+  ) {
+    throw new RetouchError(
+      "OUTPUT_SPLIT_UNSUPPORTED",
+      "首版不执行split，包括历史未完成意图；保留原交付准备事实，降低尺寸或分批后使用新意图",
+      1,
+      { delivery_id: delivery.id },
+      "committed",
+    );
+  }
   if (dm.status === "completed") {
     await verifyDirectory(target, dm.output_manifest);
     return {
@@ -633,7 +655,7 @@ export async function exportOutputs(
     entries.set("overview.jpg", await bytes(overview));
     const external = longBytes.length > ZIP_LIMITS.entry;
     requireThat(
-      !external || profile.overflow === "split",
+      !external,
       "OUTPUT_OVERSIZE",
       "高清长图 " +
         long.id +
@@ -641,7 +663,7 @@ export async function exportOutputs(
         longBytes.length +
         " bytes 超过ZIP条目 " +
         ZIP_LIMITS.entry +
-        "；选择显式overflow=split或降低长图宽度，不会发布缺项包",
+        "；首版仅reject，请降低长图宽度或分批，不会发布缺项包",
     );
     if (!external) entries.set("long-hd.png", longBytes);
     const manifest: any = {
@@ -700,7 +722,7 @@ export async function exportOutputs(
           (external
             ? "High-resolution long-hd.png is OUTSIDE review.zip; verify components.json and retain that file. The ZIP alone is not the complete review set."
             : "High-resolution long-hd.png is inside review.zip.") +
-          "\nThis is not a restorable workspace. Use context export separately; oversize native CAS objects must be diagnosed, never silently omitted. No user acceptance is inferred from formatting or export.\n",
+          "\ncomponents.json verifies frozen bytes only, not current business applicability, native completed status or user acceptance. Query the native delivery/current snapshot before treating it as a current business delivery. This is not a restorable workspace. Use context export separately; oversize native CAS objects must be diagnosed, never silently omitted. No user acceptance is inferred from formatting or export.\n",
       ),
     );
     for (const [name, b] of entries)
@@ -727,7 +749,7 @@ export async function exportOutputs(
         flag: "wx",
       });
     const names = ["review.zip", ...(external ? ["long-hd.png"] : [])],
-      files = [];
+      files: { name: string; sha256: string; bytes: number }[] = [];
     for (const name of names) {
       const b = await fs.readFile(path.join(stage, name));
       files.push({ name, sha256: bytesHash(b), bytes: b.length });
@@ -741,6 +763,10 @@ export async function exportOutputs(
       mode: input.mode,
       restorable_workspace: false,
       completeness: "complete-review-components",
+      authority: "frozen-bytes-only",
+      native_delivery_id: delivery.id,
+      requires_native_current_check: true,
+      not_business_acceptance: true,
       package_self_contained: !external,
       files,
     };
@@ -784,6 +810,15 @@ export async function exportOutputs(
       },
       key + ":seal",
     );
+    const checkPublication = () =>
+      c.call("suite-export-check", {
+        project,
+        id: delivery.id,
+        sha256: files[0].sha256,
+        output_manifest: components,
+        output_catalog: manifest,
+      });
+    await checkPublication();
     await fs.mkdir(target).catch((e) => {
       if (e.code !== "EEXIST" || !prior?.result) throw e;
     });
@@ -802,6 +837,7 @@ export async function exportOutputs(
     // Components publish exclusively; components.json is written last. A partial directory is
     // intentionally recoverable, not represented as an atomic multi-file completed delivery.
     for (const name of [...names, "components.json"]) {
+      await checkPublication();
       const dest = path.join(target, name),
         old = await statOrNull(dest);
       if (old)

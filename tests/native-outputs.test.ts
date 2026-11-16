@@ -488,7 +488,7 @@ test(
 );
 
 test(
-  "#12: actual >32MiB long PNG is rejected before publication or explicitly split with verifiable external completeness",
+  "#12: actual >32MiB long PNG is rejected without a target; split is unsupported and context never omits bytes",
   { skip: !entry, timeout: 300000 },
   async () => {
     const f = await fixture(),
@@ -540,31 +540,7 @@ test(
     );
     await assert.rejects(fs.lstat(reject), { code: "ENOENT" });
     const out = path.join(parent, "split"),
-      result = await exportSuite(
-        c,
-        p,
-        snap.id,
-        out,
-        { mode: "preview", output_profile: { ...config, overflow: "split" } },
-        "split",
-      );
-    assert.equal(result.manifest.package_self_contained, false);
-    assert.equal(result.manifest.restorable_workspace, false);
-    const bytes = await fs.readFile(path.join(out, "long-hd.png"));
-    assert.ok(bytes.length > ZIP_LIMITS.entry);
-    const zip = await readZip(path.join(out, "review.zip")),
-      m = JSON.parse(zip.get("manifest.json")!.toString());
-    assert.equal(zip.has("long-hd.png"), false);
-    assert.equal(m.long.location, "outside-package");
-    assert.equal(m.long.sha256, bytesHash(bytes));
-    assert.equal(m.completeness.status, "requires-external-component");
-    const md = await sharp(bytes).metadata();
-    assert.deepEqual([md.width, md.height], [2000, 6000]);
-    const saved = await fs.readFile(path.join(out, "components.json"));
-    await fs.rename(
-      path.join(out, "long-hd.png"),
-      path.join(parent, "preserved-long.png"),
-    );
+      beforeSplit = await c.call("snapshot", { project: p });
     await assert.rejects(
       exportSuite(
         c,
@@ -574,12 +550,30 @@ test(
         { mode: "preview", output_profile: { ...config, overflow: "split" } },
         "split",
       ),
-      { code: "OUTPUT_CONFLICT" },
+      (e: any) =>
+        e.code === "OUTPUT_SPLIT_UNSUPPORTED" && e.effectStatus === "none",
     );
-    assert.deepEqual(
-      await fs.readFile(path.join(out, "components.json")),
-      saved,
+    await assert.rejects(fs.lstat(out), { code: "ENOENT" });
+    assert.equal(
+      (await c.call("receipt", { request_id: "split:prepare" })).result,
+      undefined,
     );
+    assert.deepEqual(await c.call("snapshot", { project: p }), beforeSplit);
+    const long = beforeSplit.tables.artifacts.find(
+      (a: any) =>
+        a.kind === "media" &&
+        JSON.parse(a.meta).width === 2000 &&
+        JSON.parse(a.meta).height === 6000,
+    );
+    assert.ok(
+      long,
+      "oversize real native render remains available for explicit diagnostics, not publication",
+    );
+    const bytes = await objectBytes(c.root, JSON.parse(long.meta));
+    assert.ok(bytes.length > ZIP_LIMITS.entry);
+    assert.equal(bytesHash(bytes), JSON.parse(long.meta).sha256);
+    const md = await sharp(bytes).metadata();
+    assert.deepEqual([md.width, md.height], [2000, 6000]);
     await assert.rejects(
       exportProject(c, p, path.join(parent, "cannot-claim-restorable.zip")),
       { code: "ZIP_LIMIT" },
@@ -591,11 +585,12 @@ test(
       ),
       JSON.stringify({
         verdict: "PASS",
-        actual_external_bytes: bytes.length,
+        actual_oversize_bytes: bytes.length,
         entry_limit: ZIP_LIMITS.entry,
         reject_no_target: true,
-        split_sha256: bytesHash(bytes),
-        missing_component_refused: true,
+        oversized_sha256: bytesHash(bytes),
+        split_not_supported: true,
+        split_no_prepare_or_target: true,
         context_oversize_explicit: true,
         image_api_requests: 0,
       }) + "\n",

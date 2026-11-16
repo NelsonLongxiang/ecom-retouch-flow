@@ -29,6 +29,7 @@ export const flowReadActions = [
   "conflicts-view",
   "invariant-view",
   "suite-view",
+  "suite-export-check",
 ];
 export const flowActions = [
   ...flowReadActions,
@@ -544,7 +545,13 @@ export async function flowCommand(action, b, h) {
     }
     return { delivery: d, snapshot: a, slots };
   }
-  if (action === "suite-export-complete" || action === "suite-export-seal") {
+  if (
+    [
+      "suite-export-complete",
+      "suite-export-seal",
+      "suite-export-check",
+    ].includes(action)
+  ) {
     const a = await artifact(mgr, b.id, p, "delivery"),
       m = meta(a);
     need(
@@ -554,9 +561,10 @@ export async function flowCommand(action, b, h) {
       "SUITE_EXPORT",
       "图片包回执无效",
     );
-    const sealing = action === "suite-export-seal";
+    const sealing = action === "suite-export-seal",
+      checking = action === "suite-export-check";
     need(
-      !sealing || content(a).output_profile,
+      !(sealing || checking) || content(a).output_profile,
       "OUTPUT_BINDING",
       "只有有限输出组件使用发布前封存",
     );
@@ -607,6 +615,10 @@ export async function flowCommand(action, b, h) {
           b.output_manifest.profile_hash === digest(frozen.output_profile) &&
           b.output_manifest.mode === frozen.mode &&
           b.output_manifest.restorable_workspace === false &&
+          b.output_manifest.authority === "frozen-bytes-only" &&
+          b.output_manifest.native_delivery_id === a.id &&
+          b.output_manifest.requires_native_current_check === true &&
+          b.output_manifest.not_business_acceptance === true &&
           b.output_manifest.files.some(
             (f) => f.name === "review.zip" && f.sha256 === b.sha256,
           ),
@@ -679,6 +691,12 @@ export async function flowCommand(action, b, h) {
           "发布登记时内容覆盖已变化",
         );
       }
+      if (checking)
+        return {
+          current: true,
+          delivery_id: a.id,
+          snapshot_id: frozen.snapshot_id,
+        };
       if (sealing) m.sealed_output = identity;
       else {
         m.output_manifest = b.output_manifest;

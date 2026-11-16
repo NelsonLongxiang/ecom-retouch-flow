@@ -75,6 +75,105 @@ export function cropApproval(crop, artifacts, historical = false) {
   return a;
 }
 
+export const OUTPUT_AGGREGATE_PIXELS = 50_000_000;
+function aggregateBudget(v, slots, artifacts, dimensions) {
+  const parts = {
+    source: 0,
+    canonical: 0,
+    gallery: 0,
+    long_pages: 0,
+    long: 0,
+    reading: 0,
+    overview: 0,
+  };
+  const pixels = (w, h) => {
+    need(
+      Number.isSafeInteger(w) &&
+        Number.isSafeInteger(h) &&
+        w > 0 &&
+        h > 0 &&
+        Number.isSafeInteger(w * h),
+      "OUTPUT_RESOURCE_LIMIT",
+      "像素预算参数或乘积无效",
+    );
+    return w * h;
+  };
+  const add = (key, value) => {
+    need(
+      Number.isSafeInteger(value) &&
+        value >= 0 &&
+        Number.isSafeInteger(parts[key] + value),
+      "OUTPUT_RESOURCE_LIMIT",
+      "聚合像素预算溢出",
+    );
+    parts[key] += value;
+  };
+  const seen = new Set();
+  for (const slot of slots) {
+    const image = artifacts.find(
+      (a) => a.id === slot.media_id && a.kind === "media",
+    );
+    need(image, "OUTPUT_SOURCE", "缺少原生输入媒体");
+    const m = meta(image),
+      size = pixels(m.width, m.height);
+    if (!seen.has(image.id)) {
+      add("source", size);
+      seen.add(image.id);
+    }
+    add("canonical", size);
+    add("gallery", pixels(v.gallery.size, v.gallery.size));
+  }
+  for (const page of dimensions.pages)
+    add("long_pages", pixels(page.width, page.height));
+  add("long", pixels(dimensions.width, dimensions.height));
+  const readingHeight = Math.max(
+    1,
+    Math.round((dimensions.height * v.reading.width) / dimensions.width),
+  );
+  add("reading", pixels(v.reading.width, readingHeight));
+  const overviewWidth = Math.min(480, v.reading.width),
+    overviewHeight = Math.max(
+      1,
+      Math.round((readingHeight * overviewWidth) / v.reading.width),
+    );
+  add("overview", pixels(overviewWidth, overviewHeight));
+  let total = 0;
+  for (const value of Object.values(parts)) {
+    need(
+      Number.isSafeInteger(total + value),
+      "OUTPUT_RESOURCE_LIMIT",
+      "聚合像素预算加总溢出",
+    );
+    total += value;
+  }
+  if (total > OUTPUT_AGGREGATE_PIXELS)
+    throw Object.assign(
+      new Error(
+        "输入与全部计划派生图合计 " +
+          total +
+          " 像素，超过首版预算 " +
+          OUTPUT_AGGREGATE_PIXELS +
+          "；降低图库/长图尺寸或分批，不静默降画质",
+      ),
+      {
+        code: "OUTPUT_RESOURCE_LIMIT",
+        rc: 2,
+        details: {
+          parts,
+          total_pixels: total,
+          limit_pixels: OUTPUT_AGGREGATE_PIXELS,
+          measure: "planned-pixels-not-measured-RSS",
+        },
+      },
+    );
+  return {
+    parts,
+    total_pixels: total,
+    limit_pixels: OUTPUT_AGGREGATE_PIXELS,
+    measure: "planned-pixels-not-measured-RSS",
+  };
+}
+
 export function outputProfile(v, slots, artifacts, historical = false) {
   fields(v, [
     "schema",
@@ -102,6 +201,12 @@ export function outputProfile(v, slots, artifacts, historical = false) {
     "OUTPUT_ORDER",
     "须明确列出所选全部槽位的叙事顺序（最多29页）",
   );
+  if (!historical)
+    need(
+      v.overflow !== "split",
+      "OUTPUT_SPLIT_UNSUPPORTED",
+      "首版只支持overflow=reject；split不能执行，请降低输出尺寸或分批",
+    );
   const crops = v.crops ?? {};
   need(
     crops &&
@@ -148,9 +253,11 @@ export function outputProfile(v, slots, artifacts, historical = false) {
   const max_pixels = integer(v.long.max_pixels, 1, 50_000_000, "长图像素预算");
   const readingWidth = integer(v.reading.width, 16, width, "阅读图宽度");
   need(
-    ["reject", "split"].includes(v.overflow),
+    historical
+      ? ["reject", "split"].includes(v.overflow)
+      : v.overflow === "reject",
     "OUTPUT_PROFILE",
-    "超限策略须显式reject/split",
+    "超限策略须显式reject；首版不支持split执行",
   );
   const pages = v.order.map((id) => {
     const s = slots.find((s) => s.id === id),
@@ -171,6 +278,8 @@ export function outputProfile(v, slots, artifacts, historical = false) {
     "OUTPUT_PIXELS",
     "长图超过显式像素预算；降低宽度或分批快照，不静默裁切",
   );
+  if (!historical)
+    aggregateBudget(v, slots, artifacts, { width, height, pages });
   return {
     schema: v.schema,
     design: v.design,

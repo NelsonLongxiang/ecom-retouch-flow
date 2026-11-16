@@ -16,7 +16,8 @@ let entry = process.env.RETOUCH_YGL_ENTRY,
 let engineeringOnly = false,
   zipOnly = false,
   outputsOnly = false,
-  recoveryOnly = false;
+  recoveryOnly = false,
+  contractOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -46,6 +47,12 @@ for (let index = 0; index < args.length; index++) {
   ) {
     recoveryOnly = true;
     index++;
+  } else if (
+    args[index] === "--suite" &&
+    args[index + 1] === "output-contract"
+  ) {
+    contractOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (
@@ -56,7 +63,8 @@ if (
     Number(engineeringOnly) +
     Number(zipOnly) +
     Number(outputsOnly) +
-    Number(recoveryOnly) >
+    Number(recoveryOnly) +
+    Number(contractOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -85,12 +93,14 @@ const files = (await fs.readdir(path.join(root, "tests")))
                 ? name.startsWith("native-engineering")
                 : zipOnly
                   ? name.startsWith("native-zip")
-                  : recoveryOnly
-                    ? name === "native-outputs-recovery.test.ts"
-                    : outputsOnly
-                      ? name.startsWith("native-outputs") ||
-                        name === "native-issues-workflow.test.ts"
-                      : name.startsWith("native-")),
+                  : contractOnly
+                    ? name === "native-outputs-contract.test.ts"
+                    : recoveryOnly
+                      ? name === "native-outputs-recovery.test.ts"
+                      : outputsOnly
+                        ? name.startsWith("native-outputs") ||
+                          name === "native-issues-workflow.test.ts"
+                        : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -230,6 +240,16 @@ const recoveryEvidence =
         )
         .then(JSON.parse)
         .catch(() => null);
+const contractEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(
+          path.join(runRoot, "native-output-contract-evidence.json"),
+          "utf8",
+        )
+        .then(JSON.parse)
+        .catch(() => null);
 let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -246,25 +266,29 @@ let passed =
             ? documentsEvidence?.verdict === "PASS"
             : issuesOnly
               ? issuesEvidence?.verdict === "PASS"
-              : recoveryOnly
-                ? recoveryEvidence?.verdict === "PASS"
-                : outputsOnly
-                  ? outputEvidence?.verdict === "PASS" &&
-                    outputLargeEvidence?.verdict === "PASS" &&
-                    recoveryEvidence?.verdict === "PASS"
-                  : zipOnly
-                    ? zipEvidence?.verdict === "PASS"
-                    : engineeringOnly
-                      ? engineeringEvidence?.verdict === "PASS"
-                      : wrapperEvidence?.verdict === "PASS" &&
-                        apiEvidence?.verdict === "PASS" &&
-                        documentsEvidence?.verdict === "PASS" &&
-                        issuesEvidence?.verdict === "PASS" &&
-                        engineeringEvidence?.verdict === "PASS" &&
-                        zipEvidence?.verdict === "PASS" &&
-                        outputEvidence?.verdict === "PASS" &&
-                        outputLargeEvidence?.verdict === "PASS" &&
-                        recoveryEvidence?.verdict === "PASS")));
+              : contractOnly
+                ? contractEvidence?.verdict === "PASS"
+                : recoveryOnly
+                  ? recoveryEvidence?.verdict === "PASS"
+                  : outputsOnly
+                    ? outputEvidence?.verdict === "PASS" &&
+                      outputLargeEvidence?.verdict === "PASS" &&
+                      recoveryEvidence?.verdict === "PASS" &&
+                      contractEvidence?.verdict === "PASS"
+                    : zipOnly
+                      ? zipEvidence?.verdict === "PASS"
+                      : engineeringOnly
+                        ? engineeringEvidence?.verdict === "PASS"
+                        : wrapperEvidence?.verdict === "PASS" &&
+                          apiEvidence?.verdict === "PASS" &&
+                          documentsEvidence?.verdict === "PASS" &&
+                          issuesEvidence?.verdict === "PASS" &&
+                          engineeringEvidence?.verdict === "PASS" &&
+                          zipEvidence?.verdict === "PASS" &&
+                          outputEvidence?.verdict === "PASS" &&
+                          outputLargeEvidence?.verdict === "PASS" &&
+                          recoveryEvidence?.verdict === "PASS" &&
+                          contractEvidence?.verdict === "PASS")));
 async function collectSnapshots() {
   const snapshots = [];
   async function snapshot(directory) {
@@ -325,15 +349,18 @@ const report = {
       ? "NATIVE_DOCUMENTS"
       : issuesOnly
         ? "RETROSPECTIVE_ISSUES"
-        : recoveryOnly
-          ? "OUTPUT_RECOVERY"
-          : outputsOnly
-            ? "SNAPSHOT_OUTPUTS"
-            : zipOnly
-              ? "ZIP_SAFETY"
-              : engineeringOnly
-                ? "ENGINEERING_CONTRACTS"
-                : "FULL",
+        : contractOnly
+          ? "OUTPUT_CONTRACT"
+          : recoveryOnly
+            ? "OUTPUT_RECOVERY"
+            : outputsOnly
+              ? "SNAPSHOT_OUTPUTS"
+              : zipOnly
+                ? "ZIP_SAFETY"
+                : engineeringOnly
+                  ? "ENGINEERING_CONTRACTS"
+                  : "FULL",
+  native_output_contract_evidence: contractEvidence,
   native_output_recovery_evidence: recoveryEvidence,
   native_output_evidence: outputEvidence,
   native_output_large_evidence: outputLargeEvidence,
@@ -375,17 +402,19 @@ const output = path.join(
         ? "documents-tests.json"
         : issuesOnly
           ? "issues-tests.json"
-          : recoveryOnly
-            ? "output-recovery-tests.json"
-            : outputsOnly
-              ? "outputs-tests.json"
-              : zipOnly
-                ? "zip-tests.json"
-                : engineeringOnly
-                  ? "engineering-tests.json"
-                  : unitOnly
-                    ? "unit-tests.json"
-                    : "native-wrapper-tests.json",
+          : contractOnly
+            ? "output-contract-tests.json"
+            : recoveryOnly
+              ? "output-recovery-tests.json"
+              : outputsOnly
+                ? "outputs-tests.json"
+                : zipOnly
+                  ? "zip-tests.json"
+                  : engineeringOnly
+                    ? "engineering-tests.json"
+                    : unitOnly
+                      ? "unit-tests.json"
+                      : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);

@@ -45,7 +45,7 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 
 用invariant set声明少量有来源、视角范围明确的保持项，再invariant review逐项查数量、结构、颜色、人物、文字和遮挡。低清数不出时UNKNOWN，AI补绘不作原品证明；必检FAIL/UNKNOWN不能用总体PASS绕过，失败候选保留。局部修补、透明蒙版、裁切、合成、标题和缩放优先复用asset transform，显式登记所有输入职责、批准矩形和字体；不重复写临时Sharp脚本，不因后处理而重发图像请求。
 
-套图用suite snapshot管理稳定槽位、顺序与当前media/hash，替换/增补追加快照。suite accept只写用户明确认可的槽位范围，未改变图保留原接受，替换图需新接受。从同一快照suite export生成总览、完整/增量图片包；preview可带未接受候选并标状态，delivery仍核对接受、保持项和内容覆盖。图片预览包不是完整项目上下文ZIP，不能据导出成功宣称工作区可恢复或任务已完结。需要原比例PNG、2400方形sRGB JPEG、变高长图和轻量阅读时，用同一suite export的有限output_profile，不写临时拼装脚本；从已读叙事design绑定顺序/版本/hash，裁切须有明确来源，未变派生按原生执行身份复用。超32MiB高清长图仅经显式split外置并在组件清单标完整性；不放宽安全上限。该模式导出到组件目录、部分发布同键恢复，细则见 [快照输出](docs/SNAPSHOT-OUTPUTS.md)。
+套图用suite snapshot管理稳定槽位、顺序与当前media/hash，替换/增补追加快照。suite accept只写用户明确认可的槽位范围，未改变图保留原接受，替换图需新接受。从同一快照suite export生成总览、完整/增量图片包；preview可带未接受候选并标状态，delivery仍核对接受、保持项和内容覆盖。图片预览包不是完整项目上下文ZIP，不能据导出成功宣称工作区可恢复或任务已完结。需要原比例PNG、2400方形sRGB JPEG、变高长图和轻量阅读时，用同一suite export的有限output_profile，不写临时拼装脚本；从已读叙事design绑定顺序/版本/hash，裁切须有明确来源，未变派生按原生执行身份复用。首版仅overflow=reject，不执行split；超32MiB或输入＋全部计划派生合计超5000万像素时明确拒绝并提示降尺寸/分批，不静默降画质或放宽安全上限。组件完成标记仅证明冻结字节齐全，当前业务交付仍须另核原生状态/接受。该模式导出到组件目录、部分发布同键恢复，细则见 [快照输出](docs/SNAPSHOT-OUTPUTS.md)。
 
 初始化或阶段切换时，用 `context search/build` 查询所有已登记工作区的原生 design/spec。阅读正文、目标、保持项、评分及结语后给专业建议，写清来源、适用条件和未知部分；工具给出的频率／共现只是依据，不能直接推导满意度或因果。解释保留 Agent 角色；用户确认另记。
 
