@@ -14,6 +14,8 @@ E01–E07由plugin/applicability、flow-contracts、flow-commands以及native/fo
 
 `api.ts` 编排显式 API 传输，原生插件校验 profile、计划、授权、请求上限与唯一意图；PNG／mask／参考职责及完整提示词可追溯。使用平台 fetch，不自动重试或跟随重定向。HTTP 模拟验证真实 multipart 与本地图像字节，包含超时、迟到结果、回执故障及 clone 恢复；不调用真实收费模型。故障时先恢复原生已保存事实，不能靠重新请求补记录。
 
+Issue #11补购买决策矩阵/分镜与返图观察方法，正文仍在原生design/spec、结论仍用已有review；不实现自动看图。Issue #12的output-profile/outputs复用postprocess、原生delivery与CAS，有限extend/encode与slot配置生成比例PNG、sRGB JPEG/长图/阅读组件。旧suite ZIP模式保留；新目录模式组件独占发布、完成标记最后写入并按准备事实恢复，不假称多文件事务原子性。新上下文能力retouch-suite-output/v1保护profile与encode/extend，clone重绑原生引用并把外部成品保留为历史未授权路径。
+
 测试区分原生架构集成、本地协议图片夹具和 0.2.0 历史回归。默认测试只运行 `native-*.test.ts`；历史回归显式 `--legacy`，旧 CLI 也只在该夹具环境可执行。两者不混为一种验收。报告及复现见 [验证说明](verification/README.md)。
 
 真实 AI 图像生成、真实商品质量、费用核算和生产安全沙箱均未由本次夹具测试证明。既有默认 ygl 数据、浏览器插件归档及共享检出保持原状。

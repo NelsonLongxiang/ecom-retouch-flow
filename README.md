@@ -31,6 +31,8 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 让 Agent 使用 [SKILL.md](SKILL.md)；参数及 JSON 示例见 [CLI](docs/CLI.md)，真实图像交接见 [宿主协议](docs/HOST-EXECUTOR.md)，架构边界见 [架构](docs/ARCHITECTURE.md)。[动态上下文规范](docs/DYNAMIC-CONTEXT.md) 区分已实现的检索分析与仍由宿主 Agent 完成的专业解释。
 
+[购买决策叙事](docs/NARRATIVE-WORKFLOW.md) 补充参考/事实→买家矩阵与整套低成本分镜→风险代表样张→制作的顺序，以及商品动作对象、物理图文与职责适用反例检查；它是业务方法，不是CLI自动看图或真实视觉验收。
+
 [工程流程契约](docs/ENGINEERING-CONTRACTS.md) 提供用途与内容覆盖、多来源冲突、旧图重新采纳、逐项商品保持、原生本地变换和套图快照。接手能看到“已有结果待复核”，套图支持部分接受、完整/增量图片包；真实观察、未知、用户接受和技术状态分别保存。
 
 旧 0.2.0 账本和 v1 ZIP 仅通过 `legacy inspect/migrate` 只读读取，迁入新建隔离工作区；不自动修改真实用户数据。原生 v2 ZIP 不静默接受旧格式。操作和限制见 [项目上下文](docs/PROJECT-CONTEXT.md)。

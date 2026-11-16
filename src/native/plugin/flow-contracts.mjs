@@ -1,5 +1,6 @@
 // Executable content/evidence contracts, evaluated only from native artifacts.
 import { digest, stable } from "./value.mjs";
+import { outputProfile } from "./output-profile.mjs";
 import {
   taskBinding,
   sameBinding,
@@ -567,6 +568,15 @@ export function validateFlowSnapshot(artifacts) {
   const find = (id) => artifacts.find((a) => a.id === id);
   for (const a of artifacts) {
     const m = meta(a);
+    if (m.role === "suite-export" && content(a).output_profile) {
+      const { dimensions, ...profile } = content(a).output_profile;
+      const checked = outputProfile(profile, content(a).slots, artifacts, true);
+      need(
+        stable(checked.dimensions) === stable(dimensions),
+        "OUTPUT_PROFILE",
+        "冻结输出尺寸与槽位来源不符",
+      );
+    }
     if (m.role === "business-intent") businessIntent(content(a), artifacts);
     if (m.role === "evidence-conflict") conflict(content(a), artifacts);
     if (m.role === "product-invariants") invariants(content(a), artifacts);

@@ -3678,6 +3678,7 @@ async function restore(mgr, api, b) {
               "quote",
               "original_text",
               "source_ref",
+              "output_manifest",
             ].includes(k)
               ? structuredClone(x)
               : remap(x),
@@ -3718,6 +3719,31 @@ async function restore(mgr, api, b) {
         }
         a.content = stable(plan);
       }
+    }
+    for (const a of t.artifacts) {
+      const m = json(a.meta);
+      if (m.role !== "suite-export") continue;
+      const frozen = json(a.content);
+      const suite = t.artifacts.find((x) => x.id === frozen.snapshot_id);
+      if (suite) frozen.snapshot_hash = digest(suite.content);
+      if (frozen.output_profile) {
+        for (const ref of [
+          frozen.output_profile.design,
+          ...Object.values(frozen.output_profile.crops).map((c) => c.approval),
+        ]) {
+          const source = t.artifacts.find((x) => x.id === ref.artifact_id);
+          if (source) ref.content_hash = digest(source.content);
+        }
+        if (m.output_catalog) {
+          m.output_catalog.snapshot_hash = frozen.snapshot_hash;
+          m.output_catalog.output_profile = frozen.output_profile;
+          m.output_catalog.profile_hash = digest(frozen.output_profile);
+        }
+        if (m.output_manifest)
+          m.external_output_status = "historical-source-files-not-authorized";
+      }
+      a.content = stable(frozen);
+      a.meta = stable(m);
     }
     t.projects[0].name = b.name;
     for (const tree of t.trees) tree.name = "retouch-" + tree.id;

@@ -11,6 +11,7 @@ node scripts/test.mjs --suite documents --ygl-entry <已安装的-ygl/dist/bundl
 node scripts/test.mjs --suite issues --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite engineering --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite zip --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite outputs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
@@ -73,3 +74,9 @@ E01–E07专项报告为engineering-tests.json，完整PASS还要求native_engin
 写入器先检查全部路径、大小写碰撞、条目数量、单项和解压总量，再以 `wx` 创建输出。纯预检失败为 `effectStatus=none`，新目标不存在，已有目标不修改；打开后 IO 中断保留可检查的部分文件，错误保留 IO code，并标 `effectStatus=committed`、`details.partial_file` 和实际 `bytes_written`。它不负责把低层目标当成已验证正式包，不删除已有用户文件。
 
 专项包含正常/空包往返、晚出现的非法条目、保留名/规范字符、已有文件与硬链接保全、读端路径/链接/碰撞/数量/大小/压缩比保护。故障注入先向真实暂存文件写入前缀再返回 EIO，验证部分 IO 与未打开路径错误有别；原生 suite/context 的暂存清理、未发布正式目标、目标目录链接、同键恢复/重导及冲突保全分别验证。软件复验通过不代表真实商品视觉或用户接受。
+
+## Issues #11/#12 · 叙事交接与有限输出
+
+`--suite outputs` 包含原生design矩阵/分镜独立接手、明确夹具观察的FAIL/UNKNOWN和交付拦截，以及两种页数/比例配置、实际2400方形JPEG的sRGB ICC/contain、整页长图、重放/局部替换复用、显式裁切、过期媒体、原生ZIP/clone和能力声明。实际超过32MiB的随机像素长PNG分别验证reject与split、外部组件hash和丢组件拒绝，context不能静默省略超限CAS。
+
+专项报告为outputs-tests.json，完整PASS还须native_output_evidence与native_output_large_evidence均PASS。临时目录在本项目/隔离工作区tmp，故障/中间失败报告保全，不把原#13的29项旧PASS冒充新增特性的完整验证。真实视觉、独立盲复核、真实用户接受、图像服务及生产部署均另列，未由语义fixture或导出成功证明。

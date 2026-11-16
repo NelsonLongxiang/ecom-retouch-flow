@@ -56,6 +56,13 @@ export function contextCapabilities(snapshot: any): string[] {
     )
       ? ["retouch-suite/v1"]
       : []),
+    ...(has(
+      (a, m, c) =>
+        !!c?.output_profile ||
+        c?.operations?.some((op: any) => ["extend", "encode"].includes(op.op)),
+    )
+      ? ["retouch-suite-output/v1"]
+      : []),
     ...(has((a) => a.kind === "executor-profile")
       ? ["retouch-api-fallback/v1"]
       : []),
@@ -206,6 +213,7 @@ export async function inspectProject(file: string) {
           "retouch-flow-contracts/v1",
           "retouch-postprocess/v1",
           "retouch-suite/v1",
+          "retouch-suite-output/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",

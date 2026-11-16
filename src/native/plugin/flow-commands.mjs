@@ -1,5 +1,6 @@
 // Native transaction handlers; all state is in ygl artifacts/relations/events.
 import { digest, stable } from "./value.mjs";
+import { outputProfile } from "./output-profile.mjs";
 import {
   taskBinding,
   sameBinding,
@@ -496,6 +497,15 @@ export async function flowCommand(action, b, h) {
         "正式套图交付前仍有内容覆盖缺口",
       );
     }
+    const profile = b.output_profile
+      ? outputProfile(b.output_profile, slots, all)
+      : null;
+    if (profile)
+      need(
+        slots.every((s) => s.current),
+        "SUITE_MEDIA_STALE",
+        "输出编排须先复核/adopt过期媒体，再建新快照；不得自动刷新或沿用旧接受",
+      );
     const d = await add(
       "delivery",
       "Suite export " + a.id,
@@ -506,6 +516,7 @@ export async function flowCommand(action, b, h) {
         slots,
         mode: b.mode,
         renderer: b.renderer,
+        ...(profile ? { output_profile: profile } : {}),
       },
       {
         role: "suite-export",
@@ -517,6 +528,11 @@ export async function flowCommand(action, b, h) {
       },
     );
     await link(a.id, d.id, "exported-by");
+    if (profile) {
+      await link(d.id, profile.design.artifact_id, "references");
+      for (const crop of Object.values(profile.crops))
+        await link(d.id, crop.approval.artifact_id, "references");
+    }
     return { delivery: d, snapshot: a, slots };
   }
   if (action === "suite-export-complete") {
@@ -531,6 +547,115 @@ export async function flowCommand(action, b, h) {
     );
     m.status = "completed";
     m.package_sha256 = b.sha256;
+    if (content(a).output_profile) {
+      need(
+        b.output_manifest?.schema === "retouch.output-components/v1" &&
+          Array.isArray(b.output_manifest.files) &&
+          b.output_manifest.files.length > 0,
+        "SUITE_EXPORT",
+        "编排发布须保留组件清单",
+      );
+      const frozen = content(a),
+        catalog = b.output_catalog;
+      const { dimensions, ...profile } = frozen.output_profile;
+      outputProfile(profile, frozen.slots, all);
+      need(
+        catalog?.snapshot_id === frozen.snapshot_id &&
+          catalog.snapshot_hash === frozen.snapshot_hash &&
+          catalog.profile_hash === digest(frozen.output_profile) &&
+          catalog.restorable_workspace === false &&
+          catalog.schema ===
+            (frozen.mode === "preview"
+              ? "retouch.image-preview/v1"
+              : "retouch.image-delivery/v1") &&
+          Array.isArray(catalog.slots) &&
+          catalog.slots.length === frozen.slots.length,
+        "OUTPUT_BINDING",
+        "输出清单须绑定原冻结快照/配置",
+      );
+      need(
+        b.output_manifest.snapshot_id === frozen.snapshot_id &&
+          b.output_manifest.snapshot_hash === frozen.snapshot_hash &&
+          b.output_manifest.profile_hash === digest(frozen.output_profile) &&
+          b.output_manifest.mode === frozen.mode &&
+          b.output_manifest.restorable_workspace === false &&
+          b.output_manifest.files.some(
+            (f) => f.name === "review.zip" && f.sha256 === b.sha256,
+          ),
+        "OUTPUT_BINDING",
+        "组件清单身份或包hash不符",
+      );
+      const outputIds = new Set();
+      for (const slot of catalog.slots) {
+        need(
+          frozen.slots.some(
+            (s) =>
+              s.id === slot.id &&
+              s.media_id === slot.media_id &&
+              s.sha256 === slot.sha256,
+          ),
+          "OUTPUT_BINDING",
+          "输出槽位不匹配",
+        );
+        for (const ref of [slot.png, slot.gallery, slot.long_page]) {
+          const media = await artifact(mgr, ref.media_id, p, "media");
+          need(
+            meta(media).sha256 === ref.sha256,
+            "OUTPUT_BINDING",
+            "输出媒体/hash不符",
+          );
+          outputIds.add(media.id);
+        }
+      }
+      for (const ref of [catalog.long, catalog.reading, catalog.overview]) {
+        const media = await artifact(mgr, ref.media_id, p, "media");
+        need(
+          meta(media).sha256 === ref.sha256,
+          "OUTPUT_BINDING",
+          "输出媒体/hash不符",
+        );
+        outputIds.add(media.id);
+      }
+      const suite = await artifact(mgr, frozen.snapshot_id, p, "spec"),
+        current = suiteView(suite, all);
+      need(
+        frozen.slots.every((s) =>
+          current.slots.some(
+            (x) =>
+              x.id === s.id &&
+              x.current &&
+              x.media_id === s.media_id &&
+              x.sha256 === s.sha256,
+          ),
+        ),
+        "SUITE_MEDIA_STALE",
+        "发布登记时快照上下文已变化",
+      );
+      if (frozen.mode === "delivery") {
+        need(
+          frozen.slots.every(
+            (s) => current.slots.find((x) => x.id === s.id)?.accepted,
+          ),
+          "SUITE_ACCEPTANCE",
+          "发布登记时接受范围已变化",
+        );
+        for (const slot of frozen.slots) {
+          const image = await artifact(mgr, slot.media_id, p, "media"),
+            t = await currentTask(mgr, p, slot.binding.task_id);
+          await noUnknown(mgr, p, t.a.id);
+          assertInvariants(all, image, t.a);
+        }
+        need(
+          ["PASS", "NOT_DECLARED"].includes(coverageView(all).status),
+          "CONTENT_COVERAGE",
+          "发布登记时内容覆盖已变化",
+        );
+      }
+      m.output_manifest = b.output_manifest;
+      m.output_catalog = catalog;
+      m.outputs = [...outputIds];
+      for (const output of outputIds) await link(a.id, output, "uses");
+    }
     await mgr.query("UPDATE artifacts SET meta=?,updated=? WHERE id=?", [
       stable(m),
       new Date().toISOString(),

@@ -25,7 +25,7 @@ node src/cli.ts project new --file <project.json> --request-id <key> --workspace
 
 已有目标通过 `artifact revise` 追加原生 spec 版本，同标题 `goal new` 会拒绝。旧任务不会静默切换。先对账 unknown，再 `task context-review <task-id>`，文件为 `{"goal":"<新目标 spec id>","statement":"实际复核依据"}`，绑定新目标并清除旧计划指针。
 
-有旧图片而没有当前候选时progress为result_needs_review；用 `artifact revalidate <media-id> --expected-revision <任务revision>` 显式复核，不复制旧图或沿用旧接受。新命令 `intent set`、`coverage show/review`、`conflict record/resolve/list`、`invariant set/review/show`、`asset font/transform`、`suite snapshot/show/accept/export` 的JSON及真实行为见 [流程契约](ENGINEERING-CONTRACTS.md)。这些状态、关系和版本仍由ygl原生工件承载。
+有旧图片而没有当前候选时progress为result_needs_review；用 `artifact revalidate <media-id> --expected-revision <任务revision>` 显式复核，不复制旧图或沿用旧接受。新命令 `intent set`、`coverage show/review`、`conflict record/resolve/list`、`invariant set/review/show`、`asset font/transform`、`suite snapshot/show/accept/export` 的JSON及真实行为见 [流程契约](ENGINEERING-CONTRACTS.md)。这些状态、关系和版本仍由ygl原生工件承载。整套策划与返图观察见 [购买决策叙事](NARRATIVE-WORKFLOW.md)。suite export可选output_profile以原生快照编排原比例PNG、方形sRGB JPEG、变高长图和轻量阅读；此模式to为独立组件目录，超限/分离/恢复见 [快照输出](SNAPSHOT-OUTPUTS.md)。
 
 `task new --project <id> --file <task.json> --request-id <key>`：
 

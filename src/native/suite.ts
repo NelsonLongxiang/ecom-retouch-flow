@@ -7,6 +7,7 @@ import type { OverlayOptions } from "sharp";
 import { NativeClient } from "./client.ts";
 import { objectBytes, safeDirectory } from "./files.ts";
 import { renderingFingerprint } from "./postprocess.ts";
+import { exportOutputs } from "./outputs.ts";
 import { digest } from "./plugin/commands.mjs";
 import { writeZip, readZip } from "../infrastructure/zip.ts";
 import { requireThat, RetouchError, bytesHash } from "../domain/model.ts";
@@ -18,6 +19,8 @@ export async function exportSuite(
   input: any,
   key: string,
 ) {
+  if (input.output_profile)
+    return exportOutputs(c, project, id, file, input, key);
   const target = path.resolve(file),
     parent = path.dirname(target),
     rel = path.relative(c.root, target),

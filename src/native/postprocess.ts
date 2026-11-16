@@ -108,12 +108,27 @@ export async function transform(
     "TRANSFORM_INPUT",
     "输入不得重复且主输入须为图像",
   );
+  requireThat(
+    input.operations.every(
+      (op: any, index: number) =>
+        op.op !== "encode" || index === input.operations.length - 1,
+    ),
+    "TRANSFORM_ENCODING",
+    "encode必须是最后一步，避免后续像素操作静默丢失编码策略",
+  );
   const used = new Set([input.input_id]);
   for (const op of input.operations) {
     requireThat(
-      ["extract", "mask", "repair", "composite", "annotate", "resize"].includes(
-        op.op,
-      ),
+      [
+        "extract",
+        "mask",
+        "repair",
+        "composite",
+        "annotate",
+        "resize",
+        "extend",
+        "encode",
+      ].includes(op.op),
       "TRANSFORM_OPERATION",
       "不支持的本地变换",
     );
@@ -139,7 +154,14 @@ export async function transform(
     "TRANSFORM_INPUT",
     "输入清单含未使用的素材",
   );
-  const renderer = renderingFingerprint(),
+  const renderer = {
+      ...renderingFingerprint(),
+      ...(input.operations.some((op: any) =>
+        ["extend", "encode"].includes(op.op),
+      )
+        ? { operations: "retouch-local/v2" }
+        : {}),
+    },
     descriptor = {
       schema: "retouch.postprocess/v1",
       input_id: input.input_id,
@@ -208,6 +230,48 @@ export async function transform(
         })
         .png()
         .toBuffer();
+    }
+    if (op.op === "extend") {
+      const sides = [op.top, op.bottom, op.left, op.right];
+      requireThat(
+        sides.every((n) => Number.isSafeInteger(n) && n >= 0) &&
+          /^#[a-fA-F0-9]{6}$/.test(op.background),
+        "TRANSFORM_EXTEND",
+        "扩展画布须明确非负边距和RGB背景",
+      );
+      pixels(w + op.left + op.right, h + op.top + op.bottom);
+      bytes = await sharp(bytes)
+        .extend({
+          top: op.top,
+          bottom: op.bottom,
+          left: op.left,
+          right: op.right,
+          background: op.background,
+        })
+        .png()
+        .toBuffer();
+    }
+    if (op.op === "encode") {
+      requireThat(
+        ["png", "jpeg"].includes(op.format) && op.colourspace === "srgb",
+        "TRANSFORM_ENCODING",
+        "编码须明确PNG/JPEG和sRGB",
+      );
+      let image = sharp(bytes).toColourspace("srgb").withIccProfile("srgb");
+      if (op.format === "jpeg") {
+        requireThat(
+          Number.isSafeInteger(op.quality) &&
+            op.quality >= 1 &&
+            op.quality <= 100 &&
+            /^#[a-fA-F0-9]{6}$/.test(op.background),
+          "TRANSFORM_ENCODING",
+          "JPEG须明确质量与透明背景合成颜色",
+        );
+        image = image
+          .flatten({ background: op.background })
+          .jpeg({ quality: op.quality, chromaSubsampling: "4:4:4" });
+      } else image = image.png();
+      bytes = await image.toBuffer();
     }
     if (op.op === "repair") {
       region(op.region, w, h, op.coordinate_system);

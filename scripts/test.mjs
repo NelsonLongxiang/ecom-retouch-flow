@@ -14,7 +14,8 @@ let entry = process.env.RETOUCH_YGL_ENTRY,
   documentsOnly = false,
   issuesOnly = false;
 let engineeringOnly = false,
-  zipOnly = false;
+  zipOnly = false,
+  outputsOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -35,6 +36,9 @@ for (let index = 0; index < args.length; index++) {
   } else if (args[index] === "--suite" && args[index + 1] === "zip") {
     zipOnly = true;
     index++;
+  } else if (args[index] === "--suite" && args[index + 1] === "outputs") {
+    outputsOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (
@@ -43,7 +47,8 @@ if (
     Number(documentsOnly) +
     Number(issuesOnly) +
     Number(engineeringOnly) +
-    Number(zipOnly) >
+    Number(zipOnly) +
+    Number(outputsOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -72,7 +77,10 @@ const files = (await fs.readdir(path.join(root, "tests")))
                 ? name.startsWith("native-engineering")
                 : zipOnly
                   ? name.startsWith("native-zip")
-                  : name.startsWith("native-")),
+                  : outputsOnly
+                    ? name.startsWith("native-outputs") ||
+                      name === "native-issues-workflow.test.ts"
+                    : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -185,6 +193,23 @@ const zipEvidence =
         .readFile(path.join(runRoot, "native-zip-evidence.json"), "utf8")
         .then(JSON.parse)
         .catch(() => null);
+const outputEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(path.join(runRoot, "native-output-evidence.json"), "utf8")
+        .then(JSON.parse)
+        .catch(() => null);
+const outputLargeEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(
+          path.join(runRoot, "native-output-large-evidence.json"),
+          "utf8",
+        )
+        .then(JSON.parse)
+        .catch(() => null);
 let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -201,16 +226,21 @@ let passed =
             ? documentsEvidence?.verdict === "PASS"
             : issuesOnly
               ? issuesEvidence?.verdict === "PASS"
-              : zipOnly
-                ? zipEvidence?.verdict === "PASS"
-                : engineeringOnly
-                  ? engineeringEvidence?.verdict === "PASS"
-                  : wrapperEvidence?.verdict === "PASS" &&
-                    apiEvidence?.verdict === "PASS" &&
-                    documentsEvidence?.verdict === "PASS" &&
-                    issuesEvidence?.verdict === "PASS" &&
-                    engineeringEvidence?.verdict === "PASS" &&
-                    zipEvidence?.verdict === "PASS")));
+              : outputsOnly
+                ? outputEvidence?.verdict === "PASS" &&
+                  outputLargeEvidence?.verdict === "PASS"
+                : zipOnly
+                  ? zipEvidence?.verdict === "PASS"
+                  : engineeringOnly
+                    ? engineeringEvidence?.verdict === "PASS"
+                    : wrapperEvidence?.verdict === "PASS" &&
+                      apiEvidence?.verdict === "PASS" &&
+                      documentsEvidence?.verdict === "PASS" &&
+                      issuesEvidence?.verdict === "PASS" &&
+                      engineeringEvidence?.verdict === "PASS" &&
+                      zipEvidence?.verdict === "PASS" &&
+                      outputEvidence?.verdict === "PASS" &&
+                      outputLargeEvidence?.verdict === "PASS")));
 async function collectSnapshots() {
   const snapshots = [];
   async function snapshot(directory) {
@@ -271,11 +301,15 @@ const report = {
       ? "NATIVE_DOCUMENTS"
       : issuesOnly
         ? "RETROSPECTIVE_ISSUES"
-        : zipOnly
-          ? "ZIP_SAFETY"
-          : engineeringOnly
-            ? "ENGINEERING_CONTRACTS"
-            : "FULL",
+        : outputsOnly
+          ? "SNAPSHOT_OUTPUTS"
+          : zipOnly
+            ? "ZIP_SAFETY"
+            : engineeringOnly
+              ? "ENGINEERING_CONTRACTS"
+              : "FULL",
+  native_output_evidence: outputEvidence,
+  native_output_large_evidence: outputLargeEvidence,
   native_zip_evidence: zipEvidence,
   native_engineering_evidence: engineeringEvidence,
   native_issues_evidence: issuesEvidence,
@@ -314,13 +348,15 @@ const output = path.join(
         ? "documents-tests.json"
         : issuesOnly
           ? "issues-tests.json"
-          : zipOnly
-            ? "zip-tests.json"
-            : engineeringOnly
-              ? "engineering-tests.json"
-              : unitOnly
-                ? "unit-tests.json"
-                : "native-wrapper-tests.json",
+          : outputsOnly
+            ? "outputs-tests.json"
+            : zipOnly
+              ? "zip-tests.json"
+              : engineeringOnly
+                ? "engineering-tests.json"
+                : unitOnly
+                  ? "unit-tests.json"
+                  : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);

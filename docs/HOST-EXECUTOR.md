@@ -20,4 +20,6 @@ step.content_obligations与step.invariant_items分别描述本图须讲清的业
 
 恢复到另一个工作区后，原授权不能执行。若继续恢复运行，记录适用于该计划的新本地 approval grant，再 run authorize；授权操作不清除 unknown。原交付绝对路径仅是历史事实，不能自动在新 home 写往该路径，必须显式给出目标目录。
 
+整套制作还须先完成 [购买决策矩阵与低成本分镜](NARRATIVE-WORKFLOW.md)。返图观察先写谁对什么做了什么、商品关系、物理/图文一致性与职责适用反例，再记录结论；不凭人物/礼盒/商品元素齐全写PASS，不强制每图触摸商品。实际未看为NOT_RUN，看不清为UNKNOWN，不用prompt或fixture替代真实观察。
+
 测试中的合成图片和确认文字是协议夹具。真实宿主 AI 出图、商品语义质量和用户满意度分别验证，不能用夹具 PASS 替代。

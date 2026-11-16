@@ -13,6 +13,8 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 
 业务方案的正式入口是工作区内关联项目／任务的原生工件：变体与套图方案用 design，目标、规格和约束用 spec，来源快照用 citation。先从 brief.documents 定位当前 ID，再 `artifact show` 读取正文、版本、hash 和事实角色；历史用 `artifact history`。修订已有 design/spec 用 `artifact revise`，提交已读取的 version/hash、完整正文、原因和来源，保留原生历史和关联；同名重复 register 会拒绝。citation 保持精确快照，来源更新后重新阅读并明确引用，不编辑旧引用。详细示例见 [原生文档操作](docs/CLI.md#原生文档与导出)。
 
+整套任务先按 [购买决策叙事](docs/NARRATIVE-WORKFLOW.md) 回读参考与事实，在关联的原生design中写买家疑问—结论—证据/限制—画面—转场—验收矩阵和低成本整套分镜，再选商品关系、材质或信息密度等最高风险代表样张。页数因职责而定，不固定七图，不以人物连续代替购买理由；已有明确批量指令沿用direct-batch，不逐图重问。接手从brief.documents读取矩阵、设计身份、证据边界和下一步，不依赖聊天或Markdown副本。
+
 制作前用 `intent set` 在原生spec声明business_intent（问题、使用者、怎样使用、在哪使用）和当前项目真正需要的内容义务。它与concept/product-accurate分开；不把人物图、尺寸图当所有商品固定必选。每步coverage_ids说明本图承接什么，实际看图后coverage review绑定候选hash逐项记录观察，七张图或prompt写了用途都不算覆盖通过。brief.content_coverage与技术business_health分别读取；未看清为UNKNOWN，未检查为NOT_EVALUATED。先过代表样张再扩套；用户明确要求直接批量时保留原文选择并用direct-batch，不重复审批。详细格式见 [流程契约](docs/ENGINEERING-CONTRACTS.md)。
 
 文字参数、原图和参考矛盾时，用conflict record保留同字段多候选、原生来源、适用商品和时间。先回读已给材料，只为影响当前画面的未决点补证；外部检索记录目的与停止条件，不做无收益背景调研。conflict resolve保留选用/暂缓理由与所有来源的回读；concept-reference或creative-choice不升级商品事实。同外观参考不自动证明同SKU、材质或适配，只有相关fact_keys影响当前任务，不把所有未知都变成审批。
@@ -39,9 +41,11 @@ description: 使用基于 ygl-trees 原生 CLI 的电商修图流，组织部位
 
 目标或上下文变化后，task context-review只复核上下文。出现result_needs_review时先查看已有图片，再用artifact revalidate绑定旧media/hash、当前目标/需求、revision和实际理由来adopt/reject；不复制同图改goal_id，不沿用旧接受或交付。UNKNOWN请求继续先对账。task close会事务性挂接当前有效的节点证据，不能通过忽略doctor告警替代产物依据。
 
+返图实际看最终hash后，先在现有coverage/invariant/visual review观察中写主体/动作对象、商品关系、物理与图文一致性，再做职责相关反例（拿走/换掉商品是否仍为泛情绪图、相邻页是否新增理由），最后给结论。不把元素齐全当PASS；合法包装礼赠、无人白底/尺寸图按职责判断，不强制触摸。缺据或看不清UNKNOWN，未看NOT_RUN（覆盖聚合仍NOT_EVALUATED），失败按策略/事实/关系/排版退回对应阶段，不能无限加图或靠脚注修矛盾。细则与正反例见 [购买决策叙事](docs/NARRATIVE-WORKFLOW.md)。
+
 用invariant set声明少量有来源、视角范围明确的保持项，再invariant review逐项查数量、结构、颜色、人物、文字和遮挡。低清数不出时UNKNOWN，AI补绘不作原品证明；必检FAIL/UNKNOWN不能用总体PASS绕过，失败候选保留。局部修补、透明蒙版、裁切、合成、标题和缩放优先复用asset transform，显式登记所有输入职责、批准矩形和字体；不重复写临时Sharp脚本，不因后处理而重发图像请求。
 
-套图用suite snapshot管理稳定槽位、顺序与当前media/hash，替换/增补追加快照。suite accept只写用户明确认可的槽位范围，未改变图保留原接受，替换图需新接受。从同一快照suite export生成总览、完整/增量图片包；preview可带未接受候选并标状态，delivery仍核对接受、保持项和内容覆盖。图片预览包不是完整项目上下文ZIP，不能据导出成功宣称工作区可恢复或任务已完结。
+套图用suite snapshot管理稳定槽位、顺序与当前media/hash，替换/增补追加快照。suite accept只写用户明确认可的槽位范围，未改变图保留原接受，替换图需新接受。从同一快照suite export生成总览、完整/增量图片包；preview可带未接受候选并标状态，delivery仍核对接受、保持项和内容覆盖。图片预览包不是完整项目上下文ZIP，不能据导出成功宣称工作区可恢复或任务已完结。需要原比例PNG、2400方形sRGB JPEG、变高长图和轻量阅读时，用同一suite export的有限output_profile，不写临时拼装脚本；从已读叙事design绑定顺序/版本/hash，裁切须有明确来源，未变派生按原生执行身份复用。超32MiB高清长图仅经显式split外置并在组件清单标完整性；不放宽安全上限。该模式导出到组件目录、部分发布同键恢复，细则见 [快照输出](docs/SNAPSHOT-OUTPUTS.md)。
 
 初始化或阶段切换时，用 `context search/build` 查询所有已登记工作区的原生 design/spec。阅读正文、目标、保持项、评分及结语后给专业建议，写清来源、适用条件和未知部分；工具给出的频率／共现只是依据，不能直接推导满意度或因果。解释保留 Agent 角色；用户确认另记。
 
