@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { outputProfile } from "../src/native/plugin/output-profile.mjs";
 import { digest } from "../src/native/plugin/commands.mjs";
+import { contextCapabilities } from "../src/native/exchange.ts";
 import { outputFixture } from "./helpers/output-fixture.ts";
 import { exportSuite } from "../src/native/suite.ts";
 const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
@@ -39,6 +40,21 @@ function metadataFixture(count: number, size: number) {
   return { input, slots, artifacts: [design, ...media] };
 }
 test("#12 approved contract: aggregate planned pixels and live split reject without decoding", () => {
+  const prepared = {
+    kind: "delivery",
+    meta: JSON.stringify({
+      role: "suite-export",
+      status: "preparing",
+      output_contract: "retouch-output-contract/v1",
+    }),
+    content: "{}",
+  };
+  assert.ok(
+    contextCapabilities({ tables: { artifacts: [prepared] } }).includes(
+      "retouch-output-contract/v1",
+    ),
+    "prepared but unsealed output must protect reject-only/budget semantics against older tools",
+  );
   const normal = metadataFixture(2, 2400);
   assert.equal(
     outputProfile(normal.input, normal.slots, normal.artifacts).dimensions

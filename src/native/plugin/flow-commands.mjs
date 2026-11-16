@@ -530,6 +530,7 @@ export async function flowCommand(action, b, h) {
       },
       {
         role: "suite-export",
+        ...(profile ? { output_contract: "retouch-output-contract/v1" } : {}),
         task_id: meta(a).task_id,
         snapshot_id: a.id,
         status: "preparing",

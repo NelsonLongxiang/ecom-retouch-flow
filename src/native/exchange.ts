@@ -73,8 +73,10 @@ export function contextCapabilities(snapshot: any): string[] {
       : []),
     ...(has(
       (a, m) =>
+        m.output_contract === "retouch-output-contract/v1" ||
         m.sealed_output?.output_manifest?.requires_native_current_check ===
-          true || m.output_manifest?.requires_native_current_check === true,
+          true ||
+        m.output_manifest?.requires_native_current_check === true,
     )
       ? ["retouch-output-contract/v1"]
       : []),
