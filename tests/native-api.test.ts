@@ -18,7 +18,10 @@ import { exportProject, importProject } from "../src/native/exchange.ts";
 const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
 test(
   "显式 API fallback：授权、实际 multipart、单次提交、未知对账、原生恢复和凭证隔离",
-  { skip: !entry, timeout: 300000 },
+  // This end-to-end scenario launches hundreds of real native CLI processes.
+  // A measured Windows run finished its assertions in ~333s; keep the API request
+  // timeout at 1000ms below, but give the whole integration scenario a bounded budget.
+  { skip: !entry, timeout: 600000 },
   async (t) => {
     const parent = await fs.mkdtemp(
         path.join(process.env.RETOUCH_TEST_ROOT!, "api-"),
