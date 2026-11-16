@@ -1,6 +1,6 @@
 // Native transaction handlers; all state is in ygl artifacts/relations/events.
 import { digest, stable } from "./value.mjs";
-import { outputProfile } from "./output-profile.mjs";
+import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
   taskBinding,
   sameBinding,
@@ -44,6 +44,7 @@ export const flowActions = [
   "suite-snapshot",
   "suite-accept",
   "suite-export-prepare",
+  "suite-export-seal",
   "suite-export-complete",
 ];
 export async function flowCommand(action, b, h) {
@@ -304,6 +305,13 @@ export async function flowCommand(action, b, h) {
       );
       words(input.role, "输入职责");
     }
+    const cropSources = b.descriptor.operations
+      .filter(
+        (op) =>
+          op.op === "extract" &&
+          (op.approval || op.source_media_id || op.source_sha256),
+      )
+      .map((op) => cropApproval(op, all));
     const m = {
       role: "local-postprocess",
       ...taskBinding(t.a, digest),
@@ -321,6 +329,7 @@ export async function flowCommand(action, b, h) {
     );
     await relation(mgr, "task", t.a.id, "artifact", a.id, "tracked-by");
     for (const id of m.inputs) await link(a.id, id, "uses");
+    for (const source of cropSources) await link(a.id, source.id, "references");
     return { execution: a };
   }
   if (action === "postprocess-complete") {
@@ -535,7 +544,7 @@ export async function flowCommand(action, b, h) {
     }
     return { delivery: d, snapshot: a, slots };
   }
-  if (action === "suite-export-complete") {
+  if (action === "suite-export-complete" || action === "suite-export-seal") {
     const a = await artifact(mgr, b.id, p, "delivery"),
       m = meta(a);
     need(
@@ -545,9 +554,28 @@ export async function flowCommand(action, b, h) {
       "SUITE_EXPORT",
       "图片包回执无效",
     );
-    m.status = "completed";
-    m.package_sha256 = b.sha256;
+    const sealing = action === "suite-export-seal";
+    need(
+      !sealing || content(a).output_profile,
+      "OUTPUT_BINDING",
+      "只有有限输出组件使用发布前封存",
+    );
     if (content(a).output_profile) {
+      const identity = {
+        sha256: b.sha256,
+        output_manifest: b.output_manifest,
+        output_catalog: b.output_catalog,
+      };
+      need(
+        !m.sealed_output || digest(m.sealed_output) === digest(identity),
+        "OUTPUT_SEAL_CONFLICT",
+        "组件与原生发布前封存不符，保留现场",
+      );
+      need(
+        sealing || m.sealed_output,
+        "OUTPUT_UNSEALED",
+        "须先原生封存精确组件，不能凭磁盘标记登记完成",
+      );
       need(
         b.output_manifest?.schema === "retouch.output-components/v1" &&
           Array.isArray(b.output_manifest.files) &&
@@ -651,10 +679,17 @@ export async function flowCommand(action, b, h) {
           "发布登记时内容覆盖已变化",
         );
       }
-      m.output_manifest = b.output_manifest;
-      m.output_catalog = catalog;
+      if (sealing) m.sealed_output = identity;
+      else {
+        m.output_manifest = b.output_manifest;
+        m.output_catalog = catalog;
+      }
       m.outputs = [...outputIds];
       for (const output of outputIds) await link(a.id, output, "uses");
+    }
+    if (!sealing) {
+      m.status = "completed";
+      m.package_sha256 = b.sha256;
     }
     await mgr.query("UPDATE artifacts SET meta=?,updated=? WHERE id=?", [
       stable(m),

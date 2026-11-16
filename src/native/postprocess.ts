@@ -5,6 +5,7 @@ import { objectBytes, putObject, registerBytes } from "./files.ts";
 import { readFont, fontInfo } from "./fonts.ts";
 import { digest, assertNoCredentials } from "./plugin/commands.mjs";
 import { requireThat } from "../domain/model.ts";
+import { cropApproval } from "./plugin/output-profile.mjs";
 export const renderingFingerprint = () => ({
   schema: "retouch.renderer/v1",
   versions: { ...sharp.versions },
@@ -116,6 +117,15 @@ export async function transform(
     "TRANSFORM_ENCODING",
     "encode必须是最后一步，避免后续像素操作静默丢失编码策略",
   );
+  const approvedCrops = input.operations.filter(
+    (op: any) =>
+      op.op === "extract" &&
+      (op.approval || op.source_media_id || op.source_sha256),
+  );
+  if (approvedCrops.length) {
+    const view = await c.call("brief", { project });
+    for (const op of approvedCrops) cropApproval(op, view.artifacts);
+  }
   const used = new Set([input.input_id]);
   for (const op of input.operations) {
     requireThat(

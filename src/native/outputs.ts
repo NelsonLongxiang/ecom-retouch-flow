@@ -77,6 +77,206 @@ async function verifyDirectory(directory: string, expected: any) {
   );
 }
 
+async function resumePublished(
+  c: NativeClient,
+  project: string,
+  target: string,
+  delivery: any,
+  frozen: any,
+  key: string,
+) {
+  const sealed = JSON.parse(delivery.meta).sealed_output;
+  requireThat(
+    sealed,
+    "OUTPUT_UNSEALED",
+    "已发布标记没有原生封存身份；保留现场，不重建或猜测完成",
+  );
+  const marker = path.join(target, "components.json"),
+    stat = await fs.lstat(marker);
+  requireThat(
+    stat.isFile() && !stat.isSymbolicLink() && stat.size <= ZIP_LIMITS.entry,
+    "OUTPUT_MANIFEST",
+    "完成标记必须为受限非链接文件",
+  );
+  let components: any;
+  try {
+    components = JSON.parse(await fs.readFile(marker, "utf8"));
+  } catch {
+    throw new RetouchError(
+      "OUTPUT_MANIFEST",
+      "完成标记不是有效JSON；保留现场，不重建已发布文件",
+    );
+  }
+  requireThat(
+    components.project_id === project &&
+      components.snapshot_id === frozen.snapshot_id &&
+      components.snapshot_hash === frozen.snapshot_hash &&
+      components.profile_hash === digest(frozen.output_profile) &&
+      components.mode === frozen.mode &&
+      components.restorable_workspace === false,
+    "OUTPUT_BINDING",
+    "完成标记与原生冻结意图不符",
+  );
+  requireThat(
+    stable(components) === stable(sealed.output_manifest),
+    "OUTPUT_SEAL_CONFLICT",
+    "完成标记与原生封存不符",
+  );
+  await verifyDirectory(target, components);
+  const files = await readZip(path.join(target, "review.zip"));
+  let catalog: any;
+  try {
+    catalog = JSON.parse(files.get("manifest.json")!.toString());
+  } catch {
+    throw new RetouchError("OUTPUT_MANIFEST", "已发布图片包缺少有效清单");
+  }
+  requireThat(
+    stable(catalog) === stable(sealed.output_catalog),
+    "OUTPUT_SEAL_CONFLICT",
+    "包内清单与原生封存不符",
+  );
+  const profile = frozen.output_profile;
+  requireThat(
+    catalog.project_id === project &&
+      catalog.snapshot_id === frozen.snapshot_id &&
+      catalog.snapshot_hash === frozen.snapshot_hash &&
+      catalog.profile_hash === digest(profile) &&
+      stable(catalog.output_profile) === stable(profile) &&
+      catalog.restorable_workspace === false &&
+      catalog.schema ===
+        (frozen.mode === "preview"
+          ? "retouch.image-preview/v1"
+          : "retouch.image-delivery/v1") &&
+      Array.isArray(catalog.slots) &&
+      catalog.slots.length === frozen.slots.length,
+    "OUTPUT_BINDING",
+    "已发布清单与原生冻结意图不符",
+  );
+  const brief = await c.call("brief", { project }),
+    { dimensions, ...rawProfile } = profile;
+  outputProfile(rawProfile, frozen.slots, brief.artifacts);
+  const checkMedia = async (ref: any, bytes?: Buffer) => {
+    const a = brief.artifacts.find(
+      (a: any) => a.id === ref?.media_id && a.kind === "media",
+    );
+    requireThat(a, "OUTPUT_BINDING", "已发布清单引用不存在的原生媒体");
+    const m = JSON.parse(a.meta);
+    requireThat(
+      m.sha256 === ref.sha256,
+      "OUTPUT_BINDING",
+      "已发布媒体hash与原生事实不符",
+    );
+    const nativeBytes = await objectBytes(c.root, m);
+    if (bytes)
+      requireThat(
+        bytes.equals(nativeBytes),
+        "OUTPUT_CONFLICT",
+        "已发布字节与原生媒体不符",
+      );
+    return { a, m };
+  };
+  const expected = new Set([
+    "manifest.json",
+    "README.md",
+    "reading.jpg",
+    "overview.jpg",
+  ]);
+  const seen = new Set();
+  for (let i = 0; i < catalog.slots.length; i++) {
+    const slot = catalog.slots[i],
+      source = frozen.slots.find((s: any) => s.id === slot.id);
+    requireThat(
+      source &&
+        !seen.has(slot.id) &&
+        profile.order[i] === slot.id &&
+        source.media_id === slot.media_id &&
+        source.sha256 === slot.sha256,
+      "OUTPUT_BINDING",
+      "已发布槽位或顺序不符",
+    );
+    seen.add(slot.id);
+    for (const [ref, extension, directory] of [
+      [slot.png, "png", "pages"],
+      [slot.gallery, "jpg", "gallery"],
+    ] as const) {
+      const name =
+        directory +
+        "/" +
+        String(i + 1).padStart(2, "0") +
+        "__" +
+        slot.id +
+        "." +
+        extension;
+      requireThat(
+        ref?.file === name && files.has(name),
+        "OUTPUT_BINDING",
+        "已发布单页名称或内容缺失",
+      );
+      expected.add(name);
+      await checkMedia(ref, files.get(name));
+    }
+    await checkMedia(slot.long_page);
+    requireThat(
+      stable(slot.long_page.crop) === stable(profile.crops[slot.id] ?? null) &&
+        slot.long_page.width === dimensions.pages[i].width &&
+        slot.long_page.height === dimensions.pages[i].height,
+      "OUTPUT_BINDING",
+      "已发布长图页裁切或尺寸与冻结配置不符",
+    );
+  }
+  const external = catalog.long?.location === "outside-package";
+  requireThat(
+    catalog.long?.file === "long-hd.png" &&
+      ["outside-package", "in-package"].includes(catalog.long.location) &&
+      (!external || profile.overflow === "split") &&
+      components.package_self_contained === !external &&
+      stable(components.files.map((f: any) => f.name).sort()) ===
+        stable(["review.zip", ...(external ? ["long-hd.png"] : [])].sort()),
+    "OUTPUT_BINDING",
+    "已发布组件范围或分离策略不符",
+  );
+  const longBytes = external
+    ? await fs.readFile(path.join(target, "long-hd.png"))
+    : files.get("long-hd.png");
+  requireThat(
+    longBytes &&
+      longBytes.length === catalog.long.bytes &&
+      catalog.long.width === dimensions.width &&
+      catalog.long.height === dimensions.height,
+    "OUTPUT_BINDING",
+    "已发布高清组件或尺寸不符",
+  );
+  if (!external) expected.add("long-hd.png");
+  await checkMedia(catalog.long, longBytes);
+  await checkMedia(catalog.reading, files.get("reading.jpg"));
+  await checkMedia(catalog.overview, files.get("overview.jpg"));
+  requireThat(
+    files.size === expected.size &&
+      [...expected].every((name) => files.has(name)),
+    "OUTPUT_CONFLICT",
+    "已发布图片包有未声明或缺失文件",
+  );
+  const result = await c.call(
+    "suite-export-complete",
+    {
+      project,
+      id: delivery.id,
+      sha256: components.files.find((f: any) => f.name === "review.zip").sha256,
+      output_manifest: components,
+      output_catalog: catalog,
+    },
+    key + ":complete",
+  );
+  return {
+    ...result,
+    file: target,
+    manifest: components,
+    outputs: catalog,
+    replayed: false,
+    image_api_requests: 0,
+  };
+}
+
 export async function exportOutputs(
   c: NativeClient,
   project: string,
@@ -179,6 +379,9 @@ export async function exportOutputs(
   let stageParent = "",
     stage: string | null = null;
   try {
+    if (existing && (await statOrNull(path.join(target, "components.json")))) {
+      return await resumePublished(c, project, target, delivery, frozen, key);
+    }
     stageParent = await safeDirectory(c.root, "tmp/suite-outputs");
     stage = await fs.mkdtemp(path.join(stageParent, "staged-"));
     const profile = frozen.output_profile,
@@ -306,6 +509,10 @@ export async function exportOutputs(
                   op: "extract",
                   region: crop.region,
                   coordinate_system: crop.coordinate_system,
+                  approval: crop.approval,
+                  quote: crop.quote,
+                  source_media_id: source.id,
+                  source_sha256: m.sha256,
                 },
               ]
             : []),
@@ -565,6 +772,17 @@ export async function exportOutputs(
       ),
       "SUITE_MEDIA_STALE",
       "发布前媒体已过期，保留准备事实",
+    );
+    await c.call(
+      "suite-export-seal",
+      {
+        project,
+        id: delivery.id,
+        sha256: files[0].sha256,
+        output_manifest: components,
+        output_catalog: manifest,
+      },
+      key + ":seal",
     );
     await fs.mkdir(target).catch((e) => {
       if (e.code !== "EEXIST" || !prior?.result) throw e;

@@ -49,6 +49,32 @@ function reference(v, artifacts, kind, historical = false) {
   );
   return a;
 }
+export function cropApproval(crop, artifacts, historical = false) {
+  const a = reference(crop.approval, artifacts, null, historical);
+  need(
+    meta(a).role === "user-original" &&
+      typeof crop.quote === "string" &&
+      crop.quote.trim() &&
+      a.content.includes(crop.quote),
+    "OUTPUT_CROP_APPROVAL",
+    "裁切须有用户原文的精确批准来源",
+  );
+  if (crop.source_media_id || crop.source_sha256) {
+    const image = artifacts.find(
+      (a) => a.id === crop.source_media_id && a.kind === "media",
+    );
+    need(
+      image &&
+        meta(image).sha256 === crop.source_sha256 &&
+        crop.coordinate_system?.width === meta(image).width &&
+        crop.coordinate_system?.height === meta(image).height,
+      "OUTPUT_CROP_APPROVAL",
+      "裁切批准须绑定源媒体hash与坐标系",
+    );
+  }
+  return a;
+}
+
 export function outputProfile(v, slots, artifacts, historical = false) {
   fields(v, [
     "schema",
@@ -87,15 +113,7 @@ export function outputProfile(v, slots, artifacts, historical = false) {
   );
   for (const [id, c] of Object.entries(crops)) {
     fields(c, ["region", "coordinate_system", "approval", "quote"]);
-    const a = reference(c.approval, artifacts, null, historical);
-    need(
-      meta(a).role === "user-original" &&
-        typeof c.quote === "string" &&
-        c.quote.trim() &&
-        a.content.includes(c.quote),
-      "OUTPUT_CROP_APPROVAL",
-      "裁切须有用户原文的精确批准来源",
-    );
+    cropApproval(c, artifacts, historical);
     const s = slots.find((s) => s.id === id),
       m = meta(artifacts.find((a) => a.id === s.media_id));
     fields(c.region, ["x", "y", "width", "height"]);

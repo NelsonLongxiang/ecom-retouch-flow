@@ -2,6 +2,8 @@
 
 本入口复用原生suite snapshot、asset transform、execution/media/delivery和CAS，不建第二套账本。软件只保证明确的配置、身份、派生和字节检查，真实视觉与用户接受仍单独验收。
 
+> 当前为Draft开发候选，不是已批准公共契约。目录target、逐组件发布与资源预算仍需属主/授权评审裁定；本轮“继续”只推进工程补证，不推导合并、发版或真实业务执行授权。
+
 ## 入口与兼容
 
 现有suite export无output_profile时仍生成完整/增量原图ZIP，不变更E06接口。传入output_profile时，--to是**新的独立组件目录**，不是单个ZIP路径：
@@ -36,7 +38,7 @@
 
     {"crops":{"usage":{"region":{"x":0,"y":0,"width":1200,"height":800},"coordinate_system":{"width":1600,"height":900},"approval":{"artifact_id":"<用户原文spec>","version":1,"content_hash":"<实际hash>"},"quote":"<批准该范围的精确原文>"}}}
 
-原文角色须user-original，版本/hash/摘录必须吻合，区域在实际输入尺寸内。不自动推断“用户希望好看”就是批准切商品。原比例PNG和图库仍保留整页，crop只适用于明确的长图页并在trace/manifest留存。
+原文角色须user-original，版本/hash/摘录必须吻合，区域在实际输入尺寸内。坐标明确使用源媒体编码像素宽高，不隐式应用EXIF旋转后的显示坐标；规范PNG不自动旋转，错误的交换宽高坐标拒绝。裁切operation/trace固定源media/hash、坐标、批准ID/version/hash及摘录；批准来源变化会产生独立执行/媒体溯源，像素相同仍可复用CAS字节，不继承旧接受。不自动推断“用户希望好看”就是批准切商品。原比例PNG和图库仍保留整页，crop只适用于明确的长图页并在trace/manifest留存。
 
 ## 输出与派生
 
@@ -63,6 +65,10 @@
 只有高清长图有显式外置策略，其他超限页须降低尺寸/编码或分批，不静默省略。像素预算在渲染前判断；精确压缩大小在发布前判断。context export继续按CAS/ZIP限额诊断；含超限对象时拒绝，不省略后冒称完整可恢复。
 
 组件先在工具工作区tmp/suite-outputs的独占暂存区写入校验（正式目标须与其同卷，跨卷明确失败），正式组件以独占hard link逐个发布，components.json最后发布；**不声称跨文件或跨文件系统事务原子性**。中断可能留下preparing事实和部分组件目录，只能同键同路径同配置恢复，异内容拒绝覆盖。原生completed与全部组件校验一致才算导出成功。
+
+发布前先在同一个原生delivery保存精确组件/hash和媒体清单（suite-export-seal），不新建账本。已发布components.json但complete未成功时，恢复先核原生封存、marker、review.zip内清单、每个必需组件及原生媒体/CAS；全部吻合才只补原生complete，不调用postprocess、不重写ZIP或进入渲染暂存。磁盘自身清单即使与伪造ZIP相互一致，也不能替代原生封存。旧开发包缺少封存时保留现场并明确拒绝自动猜测完成。marker还未发布的部分目录仍走原同键恢复，exclusive写入不覆盖异内容。
+
+完成后的重放只核历史完成文件，不是重新授权或声明已适配新上下文；新当前交付仍须新快照、实际接受和所有现行门禁。封存和裁切溯源使用context必要能力retouch-output-recovery/v1；clone把源封存转为不可执行的历史来源，不从旧目标路径恢复授权。
 
 图片包始终restorable_workspace=false，context inspect/import不会把它当retouch.context/v2。用户接受、任务关闭、上架/部署不由导出自动产生。
 

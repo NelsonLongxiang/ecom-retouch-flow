@@ -1,6 +1,6 @@
 // Executable content/evidence contracts, evaluated only from native artifacts.
 import { digest, stable } from "./value.mjs";
-import { outputProfile } from "./output-profile.mjs";
+import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
   taskBinding,
   sameBinding,
@@ -568,6 +568,37 @@ export function validateFlowSnapshot(artifacts) {
   const find = (id) => artifacts.find((a) => a.id === id);
   for (const a of artifacts) {
     const m = meta(a);
+    if (m.sealed_output) {
+      const frozen = content(a),
+        seal = m.sealed_output;
+      need(
+        m.role === "suite-export" &&
+          seal.output_manifest?.snapshot_id === frozen.snapshot_id &&
+          seal.output_manifest.snapshot_hash === frozen.snapshot_hash &&
+          seal.output_manifest.profile_hash === digest(frozen.output_profile) &&
+          seal.output_manifest.files.some(
+            (f) => f.name === "review.zip" && f.sha256 === seal.sha256,
+          ),
+        "OUTPUT_SEAL_CONFLICT",
+        "封存组件身份与冻结交付不符",
+      );
+      for (const ref of [
+        ...seal.output_catalog.slots.flatMap((s) => [
+          s.png,
+          s.gallery,
+          s.long_page,
+        ]),
+        seal.output_catalog.long,
+        seal.output_catalog.reading,
+        seal.output_catalog.overview,
+      ])
+        need(
+          find(ref.media_id)?.kind === "media" &&
+            meta(find(ref.media_id)).sha256 === ref.sha256,
+          "OUTPUT_SEAL_CONFLICT",
+          "封存输出媒体缺失或hash不符",
+        );
+    }
     if (m.role === "suite-export" && content(a).output_profile) {
       const { dimensions, ...profile } = content(a).output_profile;
       const checked = outputProfile(profile, content(a).slots, artifacts, true);
@@ -630,6 +661,16 @@ export function validateFlowSnapshot(artifacts) {
         "POSTPROCESS_LINEAGE",
         "本地变换来源不完整",
       );
+    }
+    if (m.transform) {
+      for (const step of m.transform.trace ?? [])
+        if (step.operation?.op === "extract" && step.operation.approval)
+          cropApproval(step.operation, artifacts, true);
+    }
+    if (m.role === "local-postprocess") {
+      for (const op of content(a).operations ?? [])
+        if (op.op === "extract" && op.approval)
+          cropApproval(op, artifacts, true);
     }
     if (m.role === "local-postprocess")
       need(

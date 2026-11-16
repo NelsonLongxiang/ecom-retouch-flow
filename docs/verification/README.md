@@ -12,10 +12,11 @@ node scripts/test.mjs --suite issues --ygl-entry <已安装的-ygl/dist/bundle/b
 node scripts/test.mjs --suite engineering --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite zip --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite outputs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite output-recovery --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
-默认测试为 `native-*.test.ts`，包含原生基础6个场景、API的3个场景、原生文档闭环1个场景、试点问题7个场景、E01–E07工程契约5个场景、ZIP安全7个场景及#11叙事接手1个/#12输出3个场景，共33个（每个完整流程内包含多项断言）。历史0.2.0的42项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
+默认测试为 `native-*.test.ts`，包含原生基础6个场景、API的3个场景、原生文档闭环1个场景、试点问题7个场景、E01–E07工程契约5个场景、ZIP安全7个场景及#11叙事接手1个/#12输出3个场景，以及恢复/裁切批准/发布拒绝/EXIF-alpha补证4个，共37个（每个完整流程内包含多项断言；旧33项报告只对应其原冻结字节）。历史0.2.0的42项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
 
 0.3.0 历史基线为原生 6/6、历史 42/42 与两步演示通过。0.4.0 的当前结果以本轮 native-wrapper-tests.json 与 api-tests.json 的实际 verdict／源码指纹为准，不以旧报告代替。这些自动化报告中的真实 AI 图像／收费 API 为 NOT_RUN，实调报告另列。
 
@@ -81,4 +82,6 @@ E01–E07专项报告为engineering-tests.json，完整PASS还要求native_engin
 
 `--suite outputs` 包含原生design矩阵/分镜独立接手、明确夹具观察的FAIL/UNKNOWN和交付拦截，以及两种页数/比例配置、实际2400方形JPEG的sRGB ICC/contain、整页长图、重放/局部替换复用、显式裁切、过期媒体、原生ZIP/clone和能力声明。实际超过32MiB的随机像素长PNG分别验证reject与split、外部组件hash和丢组件拒绝，context不能静默省略超限CAS。
 
-专项报告为outputs-tests.json，完整PASS还须native_output_evidence与native_output_large_evidence均PASS。临时目录在本项目/隔离工作区tmp，故障/中间失败报告保全，不把原#13的29项旧PASS冒充新增特性的完整验证。真实视觉、独立盲复核、真实用户接受、图像服务及生产部署均另列，未由语义fixture或导出成功证明。
+专项报告为outputs-tests.json，完整PASS还须native_output_evidence、native_output_large_evidence和native_output_recovery_evidence均PASS。临时目录在本项目/隔离工作区tmp，故障/中间失败报告保全，不把原#13的29项旧PASS冒充新增特性的完整验证。真实视觉、独立盲复核、真实用户接受、图像服务及生产部署均另列，未由语义fixture或导出成功证明。
+
+继续轮新增output-recovery专项4/4 PASS、rc0、source_stability=PASS。两项先红后绿分别证明旧恢复触发了postprocess、相同像素却丢失新裁切批准身份；修复新增原生发布前封存，并验证磁盘自洽伪造拒绝、全部组件已发布后不重渲染/不落暂存只补完成、marker晚失败恢复、模拟EXDEV不回退copy、并发/已有空目录保全、实际编码EXIF坐标与JPEG alpha背景像素、clone来源隔离。模拟EXDEV不是实际跨盘测试，注入竞态不是完整OS崩溃矩阵；新37场景全量须绑定新提交，不拿旧33/33覆盖。本轮独立检测/验收方已获属主指派，实施与验收不混同，公共契约/合并仍需另裁。
