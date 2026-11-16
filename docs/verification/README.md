@@ -15,9 +15,11 @@ node scripts/test.mjs --suite outputs --ygl-entry <已安装的-ygl/dist/bundle/
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
-默认测试为 `native-*.test.ts`，包含原生基础6个场景、API的3个场景、原生文档闭环1个场景、试点问题7个场景和E01–E07工程契约5个场景（每个完整流程内包含多项断言）。历史0.2.0的42项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
+默认测试为 `native-*.test.ts`，包含原生基础6个场景、API的3个场景、原生文档闭环1个场景、试点问题7个场景、E01–E07工程契约5个场景、ZIP安全7个场景及#11叙事接手1个/#12输出3个场景，共33个（每个完整流程内包含多项断言）。历史0.2.0的42项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
 
 0.3.0 历史基线为原生 6/6、历史 42/42 与两步演示通过。0.4.0 的当前结果以本轮 native-wrapper-tests.json 与 api-tests.json 的实际 verdict／源码指纹为准，不以旧报告代替。这些自动化报告中的真实 AI 图像／收费 API 为 NOT_RUN，实调报告另列。
+
+2026-11-16：#13冻结提交6e09d8e6独立完整29/29 PASS；#11/#12冻结实现07a168e2最终完整33/33 PASS（rc0、零失败/取消/跳过），67份源码/测试/配置起止指纹相同。原生wrapper/API/documents/issues/engineering/ZIP/output/output-large证据均PASS。实际合成高清长PNG 41,116,951字节（32MiB条目限制33,554,432）经过拒绝与显式split、丢组件拒绝及context超限诊断。该记录是开发自验；PR14/PR15保留Draft、issues不自动关闭，独立运维复验/合并授权仍待处理。此前API长场景300s取消的失败报告保全；最终仅调整整场景预算600s，单请求1000ms及全部断言不变，完整重跑通过，不把失败回填为PASS。
 
 2026-11-15 API fallback 基线为 9/9 场景 PASS，零跳过；类型检查 PASS。API 模拟服务共观察到 11 次明确的 POST、零次重定向跟随；重放、恢复、迟到回接和克隆恢复不增加 API 请求。新增文档闭环的结果以当前完整报告和 documents-tests.json 为准；历史 42 项基线不冒充本轮重新执行。
 
