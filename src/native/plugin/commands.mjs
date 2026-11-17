@@ -3678,6 +3678,8 @@ async function restore(mgr, api, b) {
               "quote",
               "original_text",
               "source_ref",
+              "output_manifest",
+              "sealed_output",
             ].includes(k)
               ? structuredClone(x)
               : remap(x),
@@ -3718,6 +3720,55 @@ async function restore(mgr, api, b) {
         }
         a.content = stable(plan);
       }
+    }
+    for (const a of t.artifacts) {
+      const m = json(a.meta);
+      const rebindCrop = (op) => {
+        if (op?.op === "extract" && op.approval) {
+          const source = t.artifacts.find(
+            (x) => x.id === op.approval.artifact_id,
+          );
+          if (source) op.approval.content_hash = digest(source.content);
+        }
+      };
+      if (m.role === "local-postprocess") {
+        const descriptor = json(a.content);
+        descriptor.operations.forEach(rebindCrop);
+        a.content = stable(descriptor);
+      }
+      if (m.transform) {
+        for (const step of m.transform.trace ?? []) rebindCrop(step.operation);
+        a.meta = stable(m);
+      }
+    }
+    for (const a of t.artifacts) {
+      const m = json(a.meta);
+      if (m.role !== "suite-export") continue;
+      const frozen = json(a.content);
+      const suite = t.artifacts.find((x) => x.id === frozen.snapshot_id);
+      if (suite) frozen.snapshot_hash = digest(suite.content);
+      if (frozen.output_profile) {
+        for (const ref of [
+          frozen.output_profile.design,
+          ...Object.values(frozen.output_profile.crops).map((c) => c.approval),
+        ]) {
+          const source = t.artifacts.find((x) => x.id === ref.artifact_id);
+          if (source) ref.content_hash = digest(source.content);
+        }
+        if (m.output_catalog) {
+          m.output_catalog.snapshot_hash = frozen.snapshot_hash;
+          m.output_catalog.output_profile = frozen.output_profile;
+          m.output_catalog.profile_hash = digest(frozen.output_profile);
+        }
+        if (m.sealed_output) {
+          m.source_sealed_output = m.sealed_output;
+          delete m.sealed_output;
+        }
+        if (m.output_manifest || m.source_sealed_output)
+          m.external_output_status = "historical-source-files-not-authorized";
+      }
+      a.content = stable(frozen);
+      a.meta = stable(m);
     }
     t.projects[0].name = b.name;
     for (const tree of t.trees) tree.name = "retouch-" + tree.id;

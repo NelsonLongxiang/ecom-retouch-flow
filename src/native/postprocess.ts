@@ -5,6 +5,8 @@ import { objectBytes, putObject, registerBytes } from "./files.ts";
 import { readFont, fontInfo } from "./fonts.ts";
 import { digest, assertNoCredentials } from "./plugin/commands.mjs";
 import { requireThat } from "../domain/model.ts";
+import { cropApproval } from "./plugin/output-profile.mjs";
+import { assertPostprocessOutput } from "./plugin/flow-contracts.mjs";
 export const renderingFingerprint = () => ({
   schema: "retouch.renderer/v1",
   versions: { ...sharp.versions },
@@ -74,6 +76,7 @@ export async function transform(
   input: any,
   revision: number,
   key: string,
+  options: { reuseCompleted?: boolean } = {},
 ) {
   assertNoCredentials(input);
   requireThat(
@@ -108,12 +111,36 @@ export async function transform(
     "TRANSFORM_INPUT",
     "输入不得重复且主输入须为图像",
   );
+  requireThat(
+    input.operations.every(
+      (op: any, index: number) =>
+        op.op !== "encode" || index === input.operations.length - 1,
+    ),
+    "TRANSFORM_ENCODING",
+    "encode必须是最后一步，避免后续像素操作静默丢失编码策略",
+  );
+  const approvedCrops = input.operations.filter(
+    (op: any) =>
+      op.op === "extract" &&
+      (op.approval || op.source_media_id || op.source_sha256),
+  );
+  if (approvedCrops.length) {
+    const view = await c.call("brief", { project });
+    for (const op of approvedCrops) cropApproval(op, view.artifacts);
+  }
   const used = new Set([input.input_id]);
   for (const op of input.operations) {
     requireThat(
-      ["extract", "mask", "repair", "composite", "annotate", "resize"].includes(
-        op.op,
-      ),
+      [
+        "extract",
+        "mask",
+        "repair",
+        "composite",
+        "annotate",
+        "resize",
+        "extend",
+        "encode",
+      ].includes(op.op),
       "TRANSFORM_OPERATION",
       "不支持的本地变换",
     );
@@ -139,7 +166,14 @@ export async function transform(
     "TRANSFORM_INPUT",
     "输入清单含未使用的素材",
   );
-  const renderer = renderingFingerprint(),
+  const renderer = {
+      ...renderingFingerprint(),
+      ...(input.operations.some((op: any) =>
+        ["extend", "encode"].includes(op.op),
+      )
+        ? { operations: "retouch-local/v2" }
+        : {}),
+    },
     descriptor = {
       schema: "retouch.postprocess/v1",
       input_id: input.input_id,
@@ -154,7 +188,38 @@ export async function transform(
       key + ":prepare",
     );
   let ex: any = null;
-  if ((await c.call("receipt", { request_id: key + ":prepare" }))?.result) {
+  const prior = await c.call("receipt", { request_id: key + ":prepare" });
+  if (prior?.result) {
+    if (options.reuseCompleted === true) {
+      requireThat(
+        prior.action === "postprocess-prepare" && prior.result.execution?.id,
+        "REQUEST_CONFLICT",
+        "派生缓存键必须指向原后处理准备回执",
+        1,
+      );
+      const cached = await c.call("show", {
+        project,
+        id: prior.result.execution.id,
+      });
+      requireThat(
+        digest(JSON.parse(cached.content)) === digest(descriptor),
+        "RENDERER_DRIFT",
+        "输入、变换或渲染指纹变化不能复用同一缓存键",
+        1,
+      );
+      if (JSON.parse(cached.meta).status === "completed") {
+        const reused = await c.call("postprocess-reuse", {
+          project,
+          task,
+          id: cached.id,
+          expected_revision: revision,
+          descriptor,
+        });
+        // Cached metadata is not evidence that the output object still exists intact.
+        await objectBytes(c.root, JSON.parse(reused.artifact.meta));
+        return { ...reused, replayed: true, image_api_requests: 0 };
+      }
+    }
     const prepared = await prepare();
     ex = await c.call("show", { project, id: prepared.execution.id });
     const em = JSON.parse(ex.meta);
@@ -163,13 +228,21 @@ export async function transform(
       "RENDERER_DRIFT",
       "变换或渲染指纹已变化，不能重放为同一结果",
     );
-    if (em.status === "completed")
+    if (em.status === "completed") {
+      const image = await c.call("show", { project, id: em.outputs[0] });
+      assertPostprocessOutput(
+        ex,
+        image,
+        [...sources.values()].map((s) => s.a),
+      );
+      await objectBytes(c.root, JSON.parse(image.meta));
       return {
         execution: ex,
-        artifact: await c.call("show", { project, id: em.outputs[0] }),
+        artifact: image,
         replayed: true,
         image_api_requests: 0,
       };
+    }
   }
   let bytes = await sharp(sources.get(input.input_id)!.bytes)
     .toColourspace("srgb")
@@ -208,6 +281,48 @@ export async function transform(
         })
         .png()
         .toBuffer();
+    }
+    if (op.op === "extend") {
+      const sides = [op.top, op.bottom, op.left, op.right];
+      requireThat(
+        sides.every((n) => Number.isSafeInteger(n) && n >= 0) &&
+          /^#[a-fA-F0-9]{6}$/.test(op.background),
+        "TRANSFORM_EXTEND",
+        "扩展画布须明确非负边距和RGB背景",
+      );
+      pixels(w + op.left + op.right, h + op.top + op.bottom);
+      bytes = await sharp(bytes)
+        .extend({
+          top: op.top,
+          bottom: op.bottom,
+          left: op.left,
+          right: op.right,
+          background: op.background,
+        })
+        .png()
+        .toBuffer();
+    }
+    if (op.op === "encode") {
+      requireThat(
+        ["png", "jpeg"].includes(op.format) && op.colourspace === "srgb",
+        "TRANSFORM_ENCODING",
+        "编码须明确PNG/JPEG和sRGB",
+      );
+      let image = sharp(bytes).toColourspace("srgb").withIccProfile("srgb");
+      if (op.format === "jpeg") {
+        requireThat(
+          Number.isSafeInteger(op.quality) &&
+            op.quality >= 1 &&
+            op.quality <= 100 &&
+            /^#[a-fA-F0-9]{6}$/.test(op.background),
+          "TRANSFORM_ENCODING",
+          "JPEG须明确质量与透明背景合成颜色",
+        );
+        image = image
+          .flatten({ background: op.background })
+          .jpeg({ quality: op.quality, chromaSubsampling: "4:4:4" });
+      } else image = image.png();
+      bytes = await image.toBuffer();
     }
     if (op.op === "repair") {
       region(op.region, w, h, op.coordinate_system);

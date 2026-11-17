@@ -25,7 +25,7 @@ node src/cli.ts project new --file <project.json> --request-id <key> --workspace
 
 已有目标通过 `artifact revise` 追加原生 spec 版本，同标题 `goal new` 会拒绝。旧任务不会静默切换。先对账 unknown，再 `task context-review <task-id>`，文件为 `{"goal":"<新目标 spec id>","statement":"实际复核依据"}`，绑定新目标并清除旧计划指针。
 
-有旧图片而没有当前候选时progress为result_needs_review；用 `artifact revalidate <media-id> --expected-revision <任务revision>` 显式复核，不复制旧图或沿用旧接受。新命令 `intent set`、`coverage show/review`、`conflict record/resolve/list`、`invariant set/review/show`、`asset font/transform`、`suite snapshot/show/accept/export` 的JSON及真实行为见 [流程契约](ENGINEERING-CONTRACTS.md)。这些状态、关系和版本仍由ygl原生工件承载。
+有旧图片而没有当前候选时progress为result_needs_review；用 `artifact revalidate <media-id> --expected-revision <任务revision>` 显式复核，不复制旧图或沿用旧接受。新命令 `intent set`、`coverage show/review`、`conflict record/resolve/list`、`invariant set/review/show`、`asset font/transform`、`suite snapshot/show/accept/export` 的JSON及真实行为见 [流程契约](ENGINEERING-CONTRACTS.md)。这些状态、关系和版本仍由ygl原生工件承载。整套策划与返图观察见 [购买决策叙事](NARRATIVE-WORKFLOW.md)。suite export可选output_profile以原生快照编排原比例PNG、方形sRGB JPEG、变高长图和轻量阅读；此模式to为独立组件目录，超限/分离/恢复见 [快照输出](SNAPSHOT-OUTPUTS.md)。
 
 `task new --project <id> --file <task.json> --request-id <key>`：
 
@@ -101,6 +101,10 @@ node src/cli.ts artifact export <确切版本ID> --workspace <业务目录> --pr
 修订延续原生关系并保留旧正文，关联任务及其下游需要上下文复核；不会重建任务、生成图片或自动把任务切换到新目标。检索命中旧正文时会标为 superseded，并给出 current_id/current_version；历史引用仍保留原文并报告 stale。
 
 导出可读 Markdown 的元数据含 workspace/project/artifact 身份、版本、角色、来源、正文 hash 和导出时间。content_hash 为规范 JSON 字符串 `digest(content)`，与整份 Markdown 的文件 SHA-256 分开。JSON 工件以代码块呈现。导出不产生正式工件，不回写原生内容，不覆盖已有目标；副本目录不强制为 docs。用户展示和接手优先给原生 ID／版本；源码仓库 docs 仍用于产品规范，业务正文中的 v1/v2 标记仅作历史文字。
+
+## 物理参数与可视参考方法
+
+Issue #16的[公共方法及原生接手提纲](PHYSICAL-REFERENCE-WORKFLOW.md#原生接手与执行映射)复用既有facts register、design/spec register与artifact revise；每步参考仍为references中的media_id/purpose，已有host job和API提示词传递其职责。结构/基准/构型、视角及参考冲突在普通design/spec正文中维护，由Agent读取后编入计划；没有新增几何schema或自动冲突判定。method register仍是下方标签分类方法，不能用于几何定义；context cite仍只接design/spec。
 
 ## 试点问题补充入口
 

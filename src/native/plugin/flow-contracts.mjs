@@ -1,5 +1,6 @@
 // Executable content/evidence contracts, evaluated only from native artifacts.
 import { digest, stable } from "./value.mjs";
+import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
   taskBinding,
   sameBinding,
@@ -21,6 +22,127 @@ export function words(v, label) {
   );
   return v.trim();
 }
+export function assertPostprocessOutput(execution, image, artifacts) {
+  const descriptor = content(execution),
+    em = meta(execution),
+    im = meta(image),
+    transform = im?.transform;
+  const provenance = (ok) =>
+    need(
+      ok,
+      "POSTPROCESS_PROVENANCE",
+      "后处理输出与执行描述/渲染溯源不一致；保留原事实，不补造执行关系",
+    );
+  const record = (value) =>
+    value && typeof value === "object" && !Array.isArray(value);
+  provenance(
+    execution.kind === "execution" &&
+      image.kind === "media" &&
+      execution.project_id === image.project_id,
+  );
+  provenance(
+    record(descriptor) &&
+      descriptor.schema === "retouch.postprocess/v1" &&
+      Array.isArray(descriptor.inputs) &&
+      descriptor.inputs.length > 0 &&
+      descriptor.inputs.every(
+        (i) =>
+          record(i) &&
+          typeof i.id === "string" &&
+          typeof i.sha256 === "string" &&
+          typeof i.role === "string",
+      ) &&
+      Array.isArray(descriptor.operations) &&
+      descriptor.operations.length > 0 &&
+      descriptor.operations.every(
+        (op) =>
+          record(op) &&
+          [
+            "extract",
+            "mask",
+            "repair",
+            "composite",
+            "annotate",
+            "resize",
+            "extend",
+            "encode",
+          ].includes(op.op),
+      ) &&
+      record(descriptor.renderer),
+  );
+  provenance(
+    record(transform) &&
+      transform.schema === "retouch.postprocess/v1" &&
+      transform.execution_id === execution.id &&
+      Array.isArray(transform.inputs) &&
+      Array.isArray(transform.trace) &&
+      record(transform.renderer) &&
+      record(em.renderer),
+  );
+  provenance(
+    digest(transform.inputs) === digest(descriptor.inputs) &&
+      digest(transform.renderer) === digest(descriptor.renderer) &&
+      digest(em.renderer) === digest(descriptor.renderer),
+  );
+  provenance(
+    Array.isArray(em.inputs) &&
+      digest(em.inputs) === digest(descriptor.inputs.map((i) => i.id)),
+  );
+  provenance(transform.trace.length === descriptor.operations.length);
+  const source = artifacts.find(
+    (a) =>
+      a.id === descriptor.input_id &&
+      a.kind === "media" &&
+      a.project_id === execution.project_id,
+  );
+  provenance(source && descriptor.inputs.some((i) => i.id === source.id));
+  const input = meta(source);
+  const frame = (value) =>
+    record(value) &&
+    Number.isSafeInteger(value.width) &&
+    value.width > 0 &&
+    Number.isSafeInteger(value.height) &&
+    value.height > 0 &&
+    value.width * value.height <= 50_000_000;
+  let current = { width: input?.width, height: input?.height };
+  provenance(frame(current));
+  for (let n = 0; n < descriptor.operations.length; n++) {
+    const step = transform.trace[n],
+      operation = descriptor.operations[n];
+    provenance(
+      record(step) &&
+        digest(step.operation) === digest(operation) &&
+        frame(step.from) &&
+        frame(step.to),
+    );
+    provenance(
+      step.from.width === current.width && step.from.height === current.height,
+    );
+    let expected = current;
+    if (operation.op === "resize")
+      expected = { width: operation.width, height: operation.height };
+    else if (operation.op === "extract")
+      expected = {
+        width: operation.region?.width,
+        height: operation.region?.height,
+      };
+    else if (operation.op === "extend")
+      expected = {
+        width: current.width + operation.left + operation.right,
+        height: current.height + operation.top + operation.bottom,
+      };
+    provenance(
+      frame(expected) &&
+        step.to.width === expected.width &&
+        step.to.height === expected.height,
+    );
+    current = { width: step.to.width, height: step.to.height };
+  }
+  provenance(
+    frame(im) && im.width === current.width && im.height === current.height,
+  );
+}
+
 export function latest(artifacts, role, task) {
   return (
     artifacts
@@ -567,6 +689,46 @@ export function validateFlowSnapshot(artifacts) {
   const find = (id) => artifacts.find((a) => a.id === id);
   for (const a of artifacts) {
     const m = meta(a);
+    if (m.sealed_output) {
+      const frozen = content(a),
+        seal = m.sealed_output;
+      need(
+        m.role === "suite-export" &&
+          seal.output_manifest?.snapshot_id === frozen.snapshot_id &&
+          seal.output_manifest.snapshot_hash === frozen.snapshot_hash &&
+          seal.output_manifest.profile_hash === digest(frozen.output_profile) &&
+          seal.output_manifest.files.some(
+            (f) => f.name === "review.zip" && f.sha256 === seal.sha256,
+          ),
+        "OUTPUT_SEAL_CONFLICT",
+        "封存组件身份与冻结交付不符",
+      );
+      for (const ref of [
+        ...seal.output_catalog.slots.flatMap((s) => [
+          s.png,
+          s.gallery,
+          s.long_page,
+        ]),
+        seal.output_catalog.long,
+        seal.output_catalog.reading,
+        seal.output_catalog.overview,
+      ])
+        need(
+          find(ref.media_id)?.kind === "media" &&
+            meta(find(ref.media_id)).sha256 === ref.sha256,
+          "OUTPUT_SEAL_CONFLICT",
+          "封存输出媒体缺失或hash不符",
+        );
+    }
+    if (m.role === "suite-export" && content(a).output_profile) {
+      const { dimensions, ...profile } = content(a).output_profile;
+      const checked = outputProfile(profile, content(a).slots, artifacts, true);
+      need(
+        stable(checked.dimensions) === stable(dimensions),
+        "OUTPUT_PROFILE",
+        "冻结输出尺寸与槽位来源不符",
+      );
+    }
     if (m.role === "business-intent") businessIntent(content(a), artifacts);
     if (m.role === "evidence-conflict") conflict(content(a), artifacts);
     if (m.role === "product-invariants") invariants(content(a), artifacts);
@@ -620,6 +782,16 @@ export function validateFlowSnapshot(artifacts) {
         "POSTPROCESS_LINEAGE",
         "本地变换来源不完整",
       );
+    }
+    if (m.transform) {
+      for (const step of m.transform.trace ?? [])
+        if (step.operation?.op === "extract" && step.operation.approval)
+          cropApproval(step.operation, artifacts, true);
+    }
+    if (m.role === "local-postprocess") {
+      for (const op of content(a).operations ?? [])
+        if (op.op === "extract" && op.approval)
+          cropApproval(op, artifacts, true);
     }
     if (m.role === "local-postprocess")
       need(

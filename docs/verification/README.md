@@ -1,6 +1,52 @@
 # 验证与复现
 
-0.4.0 的正常入口仍为 ygl 原生封装，新增显式 API fallback。自动化回归使用 Windows、Node 24.12.0、ygl-trees 0.125.0、项目 tmp 中的隔离 home 和本机 HTTP 模拟服务；不访问默认业务库、不部署共享插件、不调用真实模型或收费 API。另有用户明确授权的一次真实服务验收，结果单独记录如下。
+## 当前开发与独立软件验收
+
+2026-11-17，本轮在用户明确批准的有限执行窗口内，以Node24.12.0、已安装的ygl-trees0.125.0及项目正式入口，完成了真实开发门禁。使用隔离原生home、本机HTTP模拟服务与合成图片，不访问默认业务库，不改共享宿主，不调用真实图像或收费API。
+
+| 门禁 | 实际结果与范围 |
+| --- | --- |
+| 语义类型检查 | 最终第4次编译器退出码0，完整诊断日志为空；80份源码/测试/配置/方法输入未变 |
+| outputs专项 | 第3次33/33 PASS，退出0，失败/取消/跳过均0；原生尺寸/ICC/血缘、缓存、恢复、reject-only/像素预算和发布时序证据通过 |
+| issues专项 | 第2次9/9 PASS，退出0，失败/取消/跳过均0；包含#16方法/facts/参考/计划接手、在途保护、引用更新、ZIP恢复与源权限隔离 |
+| 完整原生回归 | 最终第2次80/80 PASS，退出0，失败/取消/跳过/todo均0；80份输入起止与当前磁盘一致，source_stability=PASS，十类领域证据全部PASS |
+| 独立复验 | 原检测席亲跑同字节官方全量80/80及一次有界针对性3/3，均exit0，fail/cancel/skip/todo0；80输入起止/开发原件/最终磁盘一致，十域原件吻合，结论PASS_SOFTWARE_SCOPE |
+| 真实商品与模型 | 实际生图、模型服从、物理毫米准确、独立视觉/用户接受及跨SKU收益均非本轮开发门禁结论 |
+
+本机不可变报告标识：全量run-6HlWNt（SHA2561388e5672db3a51ac08cb1da66f526c96647162a1861d91315a11b049ef9174f）、outputs专项run-P8haml、issues专项run-bsWCJX。原件、TAP、stderr、开始/结束指纹及实际退出事实按本页下方规则保存在本机验证目录；机器JSON不随公开仓库分发，标识不是可下载报告链接。独立检测须亲读原件和当前磁盘，不以摘要代证据。 独立原件为independent-7a7e49e1（SHA256003b9511cad45876904abf675b0e165f34ac29d67214d8ffd83bfff274063af4），独立官方全量run-5xg4xl（SHA256628ef9532d8cc7c370c1976a8569f3a45ad54a9252befc5d9691094501340897）。本席已亲读完整报告、TAP、探针、十份领域原件并比对22份保全文件，未以320字A2A摘要放行。独立类型检查未另跑，开发编译器结果单列。
+
+## 独立发布竞态与未验证边界
+
+针对性一次执行包含after-seal、after-data、after-marker-check三个真实NativeClient/隔离数据库及Sharp/CAS场景。前两者检测到过期后拒绝新marker；最后一次成功check返回后立即改变需求时，marker可能已落盘，但完成命令返回SUITE_MEDIA_STALE、原生仍preparing且无complete回执。marker明确frozen-bytes-only、requires_native_current_check、not_business_acceptance；这不是文件系统/数据库跨域原子事务，也不提供只凭磁盘marker认定当前业务完成的保证。软件验收包含此限制，不把旧独立seal后FAIL改为历史PASS。
+
+新增[P1 #18](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)提出商品一致性/受保护产品层。现有上传与计划绑定不等于计划必含当前商品母版及结构职责；本轮仅定位接口差距，未实现新规则、未测试保护层或真实模型保真，不属于本页软件PASS范围。真实商品/独立视觉、物理毫米、Agent行为和阶段成本收益仍未测。
+
+## 原失败、预算修正及隔离边界
+
+| 原现场 | 原结果，原报告不改写 | 最小修复及保留判据 |
+| --- | --- | --- |
+| 早期类型检查 | TS2554：渲染夹具artifact查找缺项目参数；Bash退出采集被PowerShell解释，准确编译器exit未知，外层0不记PASS | 补项目参数；本轮采用真实PowerShell的$LASTEXITCODE独立采集，修后类型检查真实通过 |
+| issues首次run-kfe2XD | 9项8pass/1fail，首次预期成功请求在100ms内API_TIMEOUT；隔离DB只1次派发/unknown，无接收和重发，输入稳定 | 成功profile5000ms与故意超时profile100ms分开；负例500ms延迟、requests==2、unknown、迟到回接和received本地恢复/不重发断言保留 |
+| outputs首次run-WO2eEs | 33项32pass/1cancel，多导出/恢复整场景300秒取消，零断言fail，输入稳定 | 仅该场景总预算600秒，不改每个原生CLI60秒上限、像素/ZIP限制或断言 |
+| outputs第二次run-mc5W65 | 33项32pass/1cancel，发布只读检查180秒取消，零断言fail，输入稳定 | 仅该多快照场景总预算600秒；只读不变性、marker和stale拒绝断言全留 |
+| 首次全量run-gNU336 | 80项78pass/2cancel，局部marker/EXDEV/并发空目标及EXIF/JPEG alpha两个恢复场景180秒取消；零断言fail，输入稳定 | 只将这两个场景总预算600秒，文件默认180秒、单CLI60秒和全部断言不变；最终80项完整重跑通过 |
+
+这些预算修正经过限定只读复核，不通过删断言、取消负例、提高产品安全上限或自动重试来放行。调大预算本身不等于PASS，只有后续真实同字节报告才给结论。所有失败、取消和中间报告保留，不将其回填为成功。
+
+本轮有限日志例外只允许DSH自动日志沿原系统临时区，不是项目目录治理已修复或永久许可；产品夹具/日志/报告仍在项目既有位置，不清历史、不改DSH/共享配置/全局TEMP。授权到期或额度耗尽后不得自动续用；合并、关闭issue、发版、部署和真实图像调用均未授权。本轮源码/测试/方法正文在全量和独立执行期间保持冻结，后续只改非输入的公开验收摘要；提交前仍核这80份受验输入及精确暂存路径，不因摘要改字沿用未知代码结果。
+
+## Issues #12/#16/#17的验证范围
+
+- #12套图已完成派生可在非上下文任务revision变化后经只读检查复用；普通asset transform仍先执行完整请求意图的严格同键校验。complete/reuse/普通完成回放共用执行与输出交叉绑定，真实原生回归包含任务close后重导复用、同父图不同操作输出错挂拒绝、发布前后当前性竞态、reject-only和5000万聚合计划像素，以及原有恢复/EXDEV/编码像素场景。原夹具红测REQUEST_CONFLICT来自模拟请求门；其单元结果从未被升级为独立原生幂等验收。详见[快照输出](../SNAPSHOT-OUTPUTS.md)。
+- #16的[公共方法](../PHYSICAL-REFERENCE-WORKFLOW.md)与原生接手回归已通过开发原生集成：精确方法/来源/facts/design、参考职责/hash/父链、冻结计划、在途unknown、引用stale与ZIP恢复/原权限隔离。方法的物理知识、书籍摆放、遮挡/相对截面与控制三层归因仍由Agent实际观察判断，不等于CLI自动看图、毫米精度或生图效果通过。
+- #17与#16厚度补充的10个确定性用例以及运行器7个回归均已被本轮正式全量实际执行。invariant门禁验证的是给定观察记录的聚合，不是软件自动识图；相对FAIL/绝对UNKNOWN分项、错hash/上下文不放行、透视不机械判错等不产生真实视觉或行为收益证明。差异读取、主动纠偏和阶段耗时/成本的实际改善仍需同约束前后轨迹，未测量不报百分比。
+- Skill0.1.5仍为方法候选，不作全局安装或产品发版。D1/D2文字修正、书籍靠墙定义及控制前检的限定静态审查保留原身份与范围；独立审查者选的踏凳文本已用于修订，不能再算修后未见盲测。上游真实图/像素计数及研究来源不冒充本席亲测。
+
+## 历史已提交基线
+
+已提交b428eed6的41/41和旧a7dd34d的37项常规通过/额外seal后反例FAIL均保持原范围；它们不是本次80项补丁的验收结论。旧FAIL不自动证明新版本仍失败，新开发PASS也不能替代修后独立验收。PR14/PR15保持未合并，issues不因开发报告自动关闭。
+
+## 复现入口
 
 ```text
 npm ci
@@ -11,12 +57,17 @@ node scripts/test.mjs --suite documents --ygl-entry <已安装的-ygl/dist/bundl
 node scripts/test.mjs --suite issues --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite engineering --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/test.mjs --suite zip --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite outputs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite output-recovery --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
+node scripts/test.mjs --suite output-contract --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 node scripts/demo.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
-默认测试为 `native-*.test.ts`，包含原生基础6个场景、API的3个场景、原生文档闭环1个场景、试点问题7个场景和E01–E07工程契约5个场景（每个完整流程内包含多项断言）。历史0.2.0的42项通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现；它只验证历史夹具与迁移来源，不充当新架构验收。
+默认测试为 `native-*.test.ts`。当前正式全量已实际执行80项：b428eed6历史41项，加19项缓存/溯源/真实渲染兼容单元、2项真实原生缓存/错挂回归、#16的7项facts/提示词与1项原生接手、7项运行器证据回归、#17的3项给定观察聚合门禁。各测试可包含多条断言；本页当前80/80以最终同字节原生报告为准，不把单元计数误称80个原生数据库场景。历史0.2.0的42项仅通过 `node scripts/test.mjs --legacy --ygl-entry <入口>` 单独复现，是历史夹具与迁移来源，不充当新架构验收。
 
 0.3.0 历史基线为原生 6/6、历史 42/42 与两步演示通过。0.4.0 的当前结果以本轮 native-wrapper-tests.json 与 api-tests.json 的实际 verdict／源码指纹为准，不以旧报告代替。这些自动化报告中的真实 AI 图像／收费 API 为 NOT_RUN，实调报告另列。
+
+**历史开发基线（非当前修后独立验收）**：2026-11-16，#13冻结提交6e09d8e6窄修复完整29/29开发自验PASS；#11/#12冻结实现07a168e2最终完整33/33 PASS（rc0、零失败/取消/跳过），67份源码/测试/配置起止指纹相同。原生wrapper/API/documents/issues/engineering/ZIP/output/output-large证据均PASS。实际合成高清长PNG 41,116,951字节（32MiB条目限制33,554,432）经过拒绝与显式split、丢组件拒绝及context超限诊断。该记录是开发自验；该时点PR14/PR15保留Draft、issues未自动关闭；当前独立复验状态以本页上方表格为准。此前API长场景300s取消的失败报告保全；最终仅调整整场景预算600s，单请求1000ms及全部断言不变，完整重跑通过，不把失败回填为PASS。
 
 2026-11-15 API fallback 基线为 9/9 场景 PASS，零跳过；类型检查 PASS。API 模拟服务共观察到 11 次明确的 POST、零次重定向跟随；重放、恢复、迟到回接和克隆恢复不增加 API 请求。新增文档闭环的结果以当前完整报告和 documents-tests.json 为准；历史 42 项基线不冒充本轮重新执行。
 
@@ -73,3 +124,13 @@ E01–E07专项报告为engineering-tests.json，完整PASS还要求native_engin
 写入器先检查全部路径、大小写碰撞、条目数量、单项和解压总量，再以 `wx` 创建输出。纯预检失败为 `effectStatus=none`，新目标不存在，已有目标不修改；打开后 IO 中断保留可检查的部分文件，错误保留 IO code，并标 `effectStatus=committed`、`details.partial_file` 和实际 `bytes_written`。它不负责把低层目标当成已验证正式包，不删除已有用户文件。
 
 专项包含正常/空包往返、晚出现的非法条目、保留名/规范字符、已有文件与硬链接保全、读端路径/链接/碰撞/数量/大小/压缩比保护。故障注入先向真实暂存文件写入前缀再返回 EIO，验证部分 IO 与未打开路径错误有别；原生 suite/context 的暂存清理、未发布正式目标、目标目录链接、同键恢复/重导及冲突保全分别验证。软件复验通过不代表真实商品视觉或用户接受。
+
+## Issues #11/#12 · 叙事交接与有限输出
+
+`--suite outputs` 包含原生design矩阵/分镜独立接手、明确夹具观察的FAIL/UNKNOWN和交付拦截，以及两种页数/比例配置、实际2400方形JPEG的sRGB ICC/contain、整页长图、重放/局部替换复用、显式裁切、过期媒体、原生ZIP/clone和能力声明。首版契约以实际超过32MiB随机像素长PNG验证reject无正式目标、split不支持且零prepare/派生，以及context不能静默省略超限CAS；旧候选split成功证据仅保留为历史，不代表首版能力。
+
+专项报告为outputs-tests.json，完整PASS还须native_output_evidence、native_output_large_evidence和native_output_recovery_evidence、native_output_contract_evidence均PASS。临时目录在本项目/隔离工作区tmp，故障/中间失败报告保全，不把原#13的29项旧PASS冒充新增特性的完整验证。真实视觉、独立盲复核、真实用户接受、图像服务及生产部署均另列，未由语义fixture或导出成功证明。
+
+历史继续轮新增output-recovery专项4/4 PASS、rc0、source_stability=PASS。两项先红后绿分别证明旧恢复触发了postprocess、相同像素却丢失新裁切批准身份；修复新增原生发布前封存，并验证磁盘自洽伪造拒绝、全部组件已发布后不重渲染/不落暂存只补完成、marker晚失败恢复、模拟EXDEV不回退copy、并发/已有空目录保全、实际编码EXIF坐标与JPEG alpha背景像素、clone来源隔离。模拟EXDEV不是实际跨盘测试，注入竞态不是完整OS崩溃矩阵；a7dd34d独立37项全量和tsc通过，但额外seal后变更反例FAIL，不据全量PASS放行。用户随后明确首版组件目录/逐组件marker-last可恢复、仅reject不纳split、5000万聚合计划像素预算；修后b428eed6的41项开发全量已通过，当时独立席仅完成同版证据核对、执行NOT_RUN；当前修后独立执行状态见页首。旧报告和独立失败均保全，合并/发布仍另授权。
+
+新增output-contract专项包括聚合metadata-only、实时split零准备拒绝及历史未完成拒绝、seal后/首文件后需求变更拒marker、只读原生check不写事件/工件、bytes-only marker/历史replay不当新current交付。marker含原生delivery身份、requires_native_current_check，读包成功不升级业务接受。

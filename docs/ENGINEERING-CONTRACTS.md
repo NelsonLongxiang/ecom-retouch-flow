@@ -52,6 +52,10 @@ run review的PASS还会核对当前步骤实际承担的必检内容；project c
 
 plan.stage为sample或expand，默认sample。sample-first下，expand计划及多步骤运行的后续dispatch须有代表义务的实际PASS。用户已明确要求直接批量时，rollout.mode可用direct-batch，并用user_decision引用用户原文spec的精确摘录；保留该选择，不重复审批。直接扩套仍不把未检查内容变成PASS。意图更新后旧覆盖检查保留且不计为新版本通过。
 
+Issue #11 在既有接口上补充 [购买决策叙事与返图观察](NARRATIVE-WORKFLOW.md)：先参考/事实、矩阵与整套低成本分镜，再按风险选代表样张；观察指向具体商品对象和义务，保留合法包装、无人白底等正例。原生接口保存真实观察，不自动判断图片语义，不改变sample-first/direct-batch授权边界。
+
+Issue #16进一步提供[物理参数→结构/成像→可视参考→生成/回接→观察修订](PHYSICAL-REFERENCE-WORKFLOW.md)的公共方法，复用facts、design/spec、references.purpose与保持项；六层语义和参考冲突由Agent按正文核对，不引入新schema或自动毫米校验。
+
 ## E02 · 多来源冲突与补证
 
 `conflict record` 追加原生evidence-conflict spec。同字段保留多个候选及各自value、subject（current-sku/reference-sku/unknown）、role、observed_at和精确source。状态初始unresolved；追加来源时传expected_id并重新打开争议，旧裁决不改写。brief.evidence_conflicts和 `conflict list` 直接展示最新未决点。
@@ -71,6 +75,8 @@ plan只检查当前step.fact_keys实际依赖的争议。无关外观任务可�
 `invariant set <task-id> --expected-revision <rev>` 文件为 `{"invariants":{"schema":"retouch.invariants/v1","items":[{"id":"holes","text":"保留一个孔","scope":"原图可见正面","required":true,"source":{"artifact_id":"<可靠来源spec>","quote":"<精确摘录>"}}]}}`。保持项必须声明适用范围；假设或AI重建不能作为确定依据。
 
 `invariant review <media-id>` 与coverage review结构相同，contract_id指当前保持项spec。数量、成年人、颜色、结构、文字和遮挡可独立记录PASS/FAIL/UNKNOWN及观察；`invariant show` 汇总必检项。必检FAIL/UNKNOWN/未评估时，总体PASS、接受和交付不能绕过；候选保留，局部修补产生新媒体和新检查。可选项UNKNOWN不冒充必检失败，也不隐式调用模型。
+
+相对一致性与绝对精度用不同invariant id和观察记录，允许相对FAIL与绝对UNKNOWN同时存在，聚合仍由既有必检门禁决定。适用scope/required在观察前按真实任务声明，不能事后删除失败或降级精度要求放行；可比证据不足为UNKNOWN，未提交检查保持NOT_EVALUATED，NOT_RUN是未观察的验证状态而非新增接口枚举。详见[截面分项方法](PHYSICAL-REFERENCE-WORKFLOW.md#相对截面一致性与绝对毫米分项复核)。
 
 保持项的文本和适用范围随计划进入宿主任务单和API提示词，原始来源留在本地审计。规范变化使依赖的计划待复核，并重新锁定相关任务节点；旧运行不能绕过新规范继续派发。
 
@@ -95,6 +101,8 @@ repair按批准矩形替换像素，矩形外的规范化sRGB像素不变；补�
 `suite export <snapshot-id> --to <独立目标.zip> --file <选版.json>`；文件为 `{"mode":"preview"}` 或 `{"mode":"delivery","from_id":"<同系列较早快照>"}`。省略from_id为完整图包；指定时只包含新增/替换图。总览、图片与manifest来自同一个冻结快照和同一范围，清单记录精确hash和总览坐标。preview允许未接受候选并标状态，delivery要求选中范围已接受、保持项通过、当前适用、无未知请求且声明的内容义务通过。
 
 图片包格式为retouch.image-preview/v1或retouch.image-delivery/v1，restorable_workspace=false；它不能冒充retouch.context/v2完整项目包。目标先预检，准备后失败保留原生回执；同键同路径恢复，不覆盖不同内容，完成后重放不改文件。图像请求为0，导出不会自动关闭图像任务。
+
+Issue #12 的 [快照输出编排](SNAPSHOT-OUTPUTS.md) 在suite export上增加可选有限output_profile。旧单ZIP模式不变；新模式目标为独立组件目录，声明式原比例PNG、contain方形sRGB JPEG、变高整页/crop长图、轻量阅读/总览/说明共用冻结选版；extend/encode复用原生postprocess。组件逐个独占发布、完成清单最后写入，准备后故障按committed同键恢复，不声称多文件事务原子性。属主确认首版超限只reject、不纳split；输入与全部计划派生合计5000万像素的渲染前准入不等于RSS安全保证。seal后及每个组件/marker前重新核只读原生门禁；marker仅字节完整，当前业务交付仍需原生状态/接受。所有图片包均不可恢复工作区。
 
 ## 交换、验证与范围
 

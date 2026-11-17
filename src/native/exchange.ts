@@ -56,6 +56,30 @@ export function contextCapabilities(snapshot: any): string[] {
     )
       ? ["retouch-suite/v1"]
       : []),
+    ...(has(
+      (a, m, c) =>
+        !!c?.output_profile ||
+        c?.operations?.some((op: any) => ["extend", "encode"].includes(op.op)),
+    )
+      ? ["retouch-suite-output/v1"]
+      : []),
+    ...(has(
+      (a, m, c) =>
+        !!m.sealed_output ||
+        !!m.source_sealed_output ||
+        c?.operations?.some((op: any) => !!op.approval),
+    )
+      ? ["retouch-output-recovery/v1"]
+      : []),
+    ...(has(
+      (a, m) =>
+        m.output_contract === "retouch-output-contract/v1" ||
+        m.sealed_output?.output_manifest?.requires_native_current_check ===
+          true ||
+        m.output_manifest?.requires_native_current_check === true,
+    )
+      ? ["retouch-output-contract/v1"]
+      : []),
     ...(has((a) => a.kind === "executor-profile")
       ? ["retouch-api-fallback/v1"]
       : []),
@@ -206,6 +230,9 @@ export async function inspectProject(file: string) {
           "retouch-flow-contracts/v1",
           "retouch-postprocess/v1",
           "retouch-suite/v1",
+          "retouch-suite-output/v1",
+          "retouch-output-recovery/v1",
+          "retouch-output-contract/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",

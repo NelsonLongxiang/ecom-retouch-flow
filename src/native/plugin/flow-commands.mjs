@@ -1,5 +1,6 @@
 // Native transaction handlers; all state is in ygl artifacts/relations/events.
 import { digest, stable } from "./value.mjs";
+import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
   taskBinding,
   sameBinding,
@@ -22,12 +23,15 @@ import {
   suiteSnapshot,
   suiteView,
   assertInvariants,
+  assertPostprocessOutput,
 } from "./flow-contracts.mjs";
 export const flowReadActions = [
   "coverage-view",
   "conflicts-view",
   "invariant-view",
   "suite-view",
+  "suite-export-check",
+  "postprocess-reuse",
 ];
 export const flowActions = [
   ...flowReadActions,
@@ -43,6 +47,7 @@ export const flowActions = [
   "suite-snapshot",
   "suite-accept",
   "suite-export-prepare",
+  "suite-export-seal",
   "suite-export-complete",
 ];
 export async function flowCommand(action, b, h) {
@@ -277,6 +282,66 @@ export async function flowCommand(action, b, h) {
       }),
     };
   }
+  if (action === "postprocess-reuse") {
+    const t = await currentTask(mgr, p, b.task);
+    need(
+      t.meta.retouch.revision === b.expected_revision,
+      "REVISION_CONFLICT",
+      "任务已变化，先读取当前版本",
+    );
+    const ex = await artifact(mgr, b.id, p, "execution"),
+      m = meta(ex);
+    need(
+      m.role === "local-postprocess" &&
+        m.status === "completed" &&
+        sameBinding(m, taskBinding(t.a, digest)) &&
+        Array.isArray(m.outputs) &&
+        m.outputs.length === 1,
+      "POSTPROCESS_CONTEXT",
+      "只有同业务上下文的已完成后处理可复用",
+    );
+    const descriptor = content(ex);
+    need(
+      digest(descriptor) === digest(b.descriptor),
+      "RENDERER_DRIFT",
+      "输入、变换或渲染指纹变化不能复用",
+    );
+    for (const input of descriptor.inputs) {
+      const source = await artifact(mgr, input.id, p);
+      need(
+        ["media", "resource"].includes(source.kind) &&
+          meta(source).sha256 === input.sha256,
+        "POSTPROCESS_INPUT",
+        "缓存输入须保留原生媒体/hash",
+      );
+    }
+    for (const op of descriptor.operations)
+      if (
+        op.op === "extract" &&
+        (op.approval || op.source_media_id || op.source_sha256)
+      )
+        cropApproval(op, all);
+    const image = await artifact(mgr, m.outputs[0], p, "media"),
+      im = meta(image);
+    need(
+      im.role === "postprocess" &&
+        im.task_id === t.a.id &&
+        sameBinding(im, m) &&
+        mediaApplicable(image, t.a, all, digest),
+      "POSTPROCESS_CONTEXT",
+      "缓存输出已过期、被拒绝或不属于当前任务",
+    );
+    need(
+      descriptor.inputs
+        .filter((i) => all.find((a) => a.id === i.id)?.kind === "media")
+        .every((i) => im.parents?.includes(i.id)),
+      "POSTPROCESS_LINEAGE",
+      "缓存输出必须保留全部图像来源",
+    );
+    assertPostprocessOutput(ex, image, all);
+    // Read-only: no event, artifact, relation, acceptance or task status is written.
+    return { execution: ex, artifact: image };
+  }
   if (action === "postprocess-prepare") {
     const t = await currentTask(mgr, p, b.task);
     need(
@@ -303,6 +368,13 @@ export async function flowCommand(action, b, h) {
       );
       words(input.role, "输入职责");
     }
+    const cropSources = b.descriptor.operations
+      .filter(
+        (op) =>
+          op.op === "extract" &&
+          (op.approval || op.source_media_id || op.source_sha256),
+      )
+      .map((op) => cropApproval(op, all));
     const m = {
       role: "local-postprocess",
       ...taskBinding(t.a, digest),
@@ -320,6 +392,7 @@ export async function flowCommand(action, b, h) {
     );
     await relation(mgr, "task", t.a.id, "artifact", a.id, "tracked-by");
     for (const id of m.inputs) await link(a.id, id, "uses");
+    for (const source of cropSources) await link(a.id, source.id, "references");
     return { execution: a };
   }
   if (action === "postprocess-complete") {
@@ -344,6 +417,7 @@ export async function flowCommand(action, b, h) {
       "POSTPROCESS_LINEAGE",
       "输出须保留全部图像输入",
     );
+    assertPostprocessOutput(ex, image, all);
     m.status = "completed";
     m.outputs = [image.id];
     m.revision++;
@@ -496,6 +570,15 @@ export async function flowCommand(action, b, h) {
         "正式套图交付前仍有内容覆盖缺口",
       );
     }
+    const profile = b.output_profile
+      ? outputProfile(b.output_profile, slots, all)
+      : null;
+    if (profile)
+      need(
+        slots.every((s) => s.current),
+        "SUITE_MEDIA_STALE",
+        "输出编排须先复核/adopt过期媒体，再建新快照；不得自动刷新或沿用旧接受",
+      );
     const d = await add(
       "delivery",
       "Suite export " + a.id,
@@ -506,9 +589,11 @@ export async function flowCommand(action, b, h) {
         slots,
         mode: b.mode,
         renderer: b.renderer,
+        ...(profile ? { output_profile: profile } : {}),
       },
       {
         role: "suite-export",
+        ...(profile ? { output_contract: "retouch-output-contract/v1" } : {}),
         task_id: meta(a).task_id,
         snapshot_id: a.id,
         status: "preparing",
@@ -517,9 +602,20 @@ export async function flowCommand(action, b, h) {
       },
     );
     await link(a.id, d.id, "exported-by");
+    if (profile) {
+      await link(d.id, profile.design.artifact_id, "references");
+      for (const crop of Object.values(profile.crops))
+        await link(d.id, crop.approval.artifact_id, "references");
+    }
     return { delivery: d, snapshot: a, slots };
   }
-  if (action === "suite-export-complete") {
+  if (
+    [
+      "suite-export-complete",
+      "suite-export-seal",
+      "suite-export-check",
+    ].includes(action)
+  ) {
     const a = await artifact(mgr, b.id, p, "delivery"),
       m = meta(a);
     need(
@@ -529,8 +625,154 @@ export async function flowCommand(action, b, h) {
       "SUITE_EXPORT",
       "图片包回执无效",
     );
-    m.status = "completed";
-    m.package_sha256 = b.sha256;
+    const sealing = action === "suite-export-seal",
+      checking = action === "suite-export-check";
+    need(
+      !(sealing || checking) || content(a).output_profile,
+      "OUTPUT_BINDING",
+      "只有有限输出组件使用发布前封存",
+    );
+    if (content(a).output_profile) {
+      const identity = {
+        sha256: b.sha256,
+        output_manifest: b.output_manifest,
+        output_catalog: b.output_catalog,
+      };
+      need(
+        !m.sealed_output || digest(m.sealed_output) === digest(identity),
+        "OUTPUT_SEAL_CONFLICT",
+        "组件与原生发布前封存不符，保留现场",
+      );
+      need(
+        sealing || m.sealed_output,
+        "OUTPUT_UNSEALED",
+        "须先原生封存精确组件，不能凭磁盘标记登记完成",
+      );
+      need(
+        b.output_manifest?.schema === "retouch.output-components/v1" &&
+          Array.isArray(b.output_manifest.files) &&
+          b.output_manifest.files.length > 0,
+        "SUITE_EXPORT",
+        "编排发布须保留组件清单",
+      );
+      const frozen = content(a),
+        catalog = b.output_catalog;
+      const { dimensions, ...profile } = frozen.output_profile;
+      outputProfile(profile, frozen.slots, all);
+      need(
+        catalog?.snapshot_id === frozen.snapshot_id &&
+          catalog.snapshot_hash === frozen.snapshot_hash &&
+          catalog.profile_hash === digest(frozen.output_profile) &&
+          catalog.restorable_workspace === false &&
+          catalog.schema ===
+            (frozen.mode === "preview"
+              ? "retouch.image-preview/v1"
+              : "retouch.image-delivery/v1") &&
+          Array.isArray(catalog.slots) &&
+          catalog.slots.length === frozen.slots.length,
+        "OUTPUT_BINDING",
+        "输出清单须绑定原冻结快照/配置",
+      );
+      need(
+        b.output_manifest.snapshot_id === frozen.snapshot_id &&
+          b.output_manifest.snapshot_hash === frozen.snapshot_hash &&
+          b.output_manifest.profile_hash === digest(frozen.output_profile) &&
+          b.output_manifest.mode === frozen.mode &&
+          b.output_manifest.restorable_workspace === false &&
+          b.output_manifest.authority === "frozen-bytes-only" &&
+          b.output_manifest.native_delivery_id === a.id &&
+          b.output_manifest.requires_native_current_check === true &&
+          b.output_manifest.not_business_acceptance === true &&
+          b.output_manifest.files.some(
+            (f) => f.name === "review.zip" && f.sha256 === b.sha256,
+          ),
+        "OUTPUT_BINDING",
+        "组件清单身份或包hash不符",
+      );
+      const outputIds = new Set();
+      for (const slot of catalog.slots) {
+        need(
+          frozen.slots.some(
+            (s) =>
+              s.id === slot.id &&
+              s.media_id === slot.media_id &&
+              s.sha256 === slot.sha256,
+          ),
+          "OUTPUT_BINDING",
+          "输出槽位不匹配",
+        );
+        for (const ref of [slot.png, slot.gallery, slot.long_page]) {
+          const media = await artifact(mgr, ref.media_id, p, "media");
+          need(
+            meta(media).sha256 === ref.sha256,
+            "OUTPUT_BINDING",
+            "输出媒体/hash不符",
+          );
+          outputIds.add(media.id);
+        }
+      }
+      for (const ref of [catalog.long, catalog.reading, catalog.overview]) {
+        const media = await artifact(mgr, ref.media_id, p, "media");
+        need(
+          meta(media).sha256 === ref.sha256,
+          "OUTPUT_BINDING",
+          "输出媒体/hash不符",
+        );
+        outputIds.add(media.id);
+      }
+      const suite = await artifact(mgr, frozen.snapshot_id, p, "spec"),
+        current = suiteView(suite, all);
+      need(
+        frozen.slots.every((s) =>
+          current.slots.some(
+            (x) =>
+              x.id === s.id &&
+              x.current &&
+              x.media_id === s.media_id &&
+              x.sha256 === s.sha256,
+          ),
+        ),
+        "SUITE_MEDIA_STALE",
+        "发布登记时快照上下文已变化",
+      );
+      if (frozen.mode === "delivery") {
+        need(
+          frozen.slots.every(
+            (s) => current.slots.find((x) => x.id === s.id)?.accepted,
+          ),
+          "SUITE_ACCEPTANCE",
+          "发布登记时接受范围已变化",
+        );
+        for (const slot of frozen.slots) {
+          const image = await artifact(mgr, slot.media_id, p, "media"),
+            t = await currentTask(mgr, p, slot.binding.task_id);
+          await noUnknown(mgr, p, t.a.id);
+          assertInvariants(all, image, t.a);
+        }
+        need(
+          ["PASS", "NOT_DECLARED"].includes(coverageView(all).status),
+          "CONTENT_COVERAGE",
+          "发布登记时内容覆盖已变化",
+        );
+      }
+      if (checking)
+        return {
+          current: true,
+          delivery_id: a.id,
+          snapshot_id: frozen.snapshot_id,
+        };
+      if (sealing) m.sealed_output = identity;
+      else {
+        m.output_manifest = b.output_manifest;
+        m.output_catalog = catalog;
+      }
+      m.outputs = [...outputIds];
+      for (const output of outputIds) await link(a.id, output, "uses");
+    }
+    if (!sealing) {
+      m.status = "completed";
+      m.package_sha256 = b.sha256;
+    }
     await mgr.query("UPDATE artifacts SET meta=?,updated=? WHERE id=?", [
       stable(m),
       new Date().toISOString(),

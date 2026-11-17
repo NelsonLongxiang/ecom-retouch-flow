@@ -10,9 +10,11 @@
 
 试点契约的字段事实、量表与尺寸派生函数在原生插件模块中复用，落点仍为 spec/profile/media/execution 等既有工件。`configuration.ts` 只在显式授权下读取当前 Codex 配置，使用固定版本 TOML 解析器，不复制配置正文或凭证；私网 HTTP 策略和本地 workspace/provider 绑定在原生 executor-profile 中。交付在准备前预检，准备后的 IO 失败有真实副作用状态和恢复／放弃入口。专项测试为 --suite issues，真实服务验收独立。
 
-E01–E07由plugin/applicability、flow-contracts、flow-commands以及native/fonts、postprocess、suite承载，复用既有原生事务与CAS。覆盖/保持项绑定当前规范、图片hash和上下文；结果重新采纳不修改旧media；任务关闭事务挂证据。本地变换记录渲染/字体与全部输入，套图导出从原生快照派生总览和图片包。完整回归22/22 PASS并校验起止源码稳定，专项证据纳入完整PASS门槛；本轮未新增真实图像调用。接口见 [工程契约](ENGINEERING-CONTRACTS.md)。
+E01–E07由plugin/applicability、flow-contracts、flow-commands以及native/fonts、postprocess、suite承载，复用既有原生事务与CAS。覆盖/保持项绑定当前规范、图片hash和上下文；结果重新采纳不修改旧media；任务关闭事务挂证据。本地变换记录渲染/字体与全部输入，套图导出从原生快照派生总览和图片包。E01–E07历史基线完整回归22/22 PASS并校验起止源码稳定，专项证据纳入完整PASS门槛；本轮未新增真实图像调用。接口见 [工程契约](ENGINEERING-CONTRACTS.md)。
 
 `api.ts` 编排显式 API 传输，原生插件校验 profile、计划、授权、请求上限与唯一意图；PNG／mask／参考职责及完整提示词可追溯。使用平台 fetch，不自动重试或跟随重定向。HTTP 模拟验证真实 multipart 与本地图像字节，包含超时、迟到结果、回执故障及 clone 恢复；不调用真实收费模型。故障时先恢复原生已保存事实，不能靠重新请求补记录。
+
+Issue #11补购买决策矩阵/分镜与返图观察方法，正文仍在原生design/spec、结论仍用已有review；不实现自动看图。Issue #12的output-profile/outputs复用postprocess、原生delivery与CAS，有限extend/encode与slot配置生成比例PNG、sRGB JPEG/长图/阅读组件。旧suite ZIP模式保留；新目录模式组件独占发布、完成标记最后写入并按准备事实恢复，不假称多文件事务原子性。新上下文能力retouch-suite-output/v1保护profile与encode/extend，clone重绑原生引用并把外部成品保留为历史未授权路径。首版用户裁定仅reject且输入+全部计划派生合计5000万像素，prepare/分配前拒绝而非RSS保证；seal后和各组件/marker前复用只读原生门禁，marker仅冻结字节完整，当前业务接受另核。
 
 测试区分原生架构集成、本地协议图片夹具和 0.2.0 历史回归。默认测试只运行 `native-*.test.ts`；历史回归显式 `--legacy`，旧 CLI 也只在该夹具环境可执行。两者不混为一种验收。报告及复现见 [验证说明](verification/README.md)。
 
