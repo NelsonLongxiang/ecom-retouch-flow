@@ -233,9 +233,32 @@ export function apiPrompt(step, requirements, preserve) {
             }),
         ]
       : []),
-    "第一张图为编辑目标。" +
+    ...(step.product_contract
+      ? [
+          "商品一致性路线与实际输入职责：" +
+            JSON.stringify({
+              route: step.product_contract.consistency.route,
+              sku: step.product_contract.consistency.sku,
+              view: step.product_contract.consistency.view,
+              master: step.product_contract.consistency.master,
+              allowed_changes:
+                step.product_contract.consistency.allowed_changes,
+            }),
+        ]
+      : []),
+    (step.input_role === "product-structure"
+      ? "第一张图为当前SKU结构母版及编辑目标，必须约束可见结构。"
+      : "第一张图为编辑目标。") +
       (step.references ?? [])
-        .map((r, i) => "第 " + (i + 2) + " 张图仅用于：" + r.purpose)
+        .map(
+          (r, i) =>
+            "第 " +
+            (i + 2) +
+            " 张图" +
+            (r.role === "product-structure"
+              ? "为当前SKU结构母版，必须用于可见结构约束；此固定职责不可被其他说明降级。"
+              : "仅用于：" + r.purpose),
+        )
         .join("；"),
     "参考图不是当前商品规格的确认依据。",
   ].join("\n\n");

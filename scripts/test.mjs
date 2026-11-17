@@ -17,7 +17,8 @@ let engineeringOnly = false,
   zipOnly = false,
   outputsOnly = false,
   recoveryOnly = false,
-  contractOnly = false;
+  contractOnly = false,
+  productOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -53,6 +54,12 @@ for (let index = 0; index < args.length; index++) {
   ) {
     contractOnly = true;
     index++;
+  } else if (
+    args[index] === "--suite" &&
+    args[index + 1] === "product-consistency"
+  ) {
+    productOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (
@@ -64,7 +71,8 @@ if (
     Number(zipOnly) +
     Number(outputsOnly) +
     Number(recoveryOnly) +
-    Number(contractOnly) >
+    Number(contractOnly) +
+    Number(productOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -83,25 +91,27 @@ const files = (await fs.readdir(path.join(root, "tests")))
       name.endsWith(".test.ts") &&
       (legacy
         ? !name.startsWith("native-")
-        : apiOnly
-          ? name.startsWith("native-api")
-          : documentsOnly
-            ? name.startsWith("native-documents")
-            : issuesOnly
-              ? name.startsWith("native-issues")
-              : engineeringOnly
-                ? name.startsWith("native-engineering")
-                : zipOnly
-                  ? name.startsWith("native-zip")
-                  : contractOnly
-                    ? name === "native-outputs-contract.test.ts"
-                    : recoveryOnly
-                      ? name === "native-outputs-recovery.test.ts"
-                      : outputsOnly
-                        ? name.startsWith("native-outputs") ||
-                          name === "native-output-cache-unit.test.ts" ||
-                          name === "native-issues-workflow.test.ts"
-                        : name.startsWith("native-")),
+        : productOnly
+          ? name.startsWith("native-issues-product-consistency")
+          : apiOnly
+            ? name.startsWith("native-api")
+            : documentsOnly
+              ? name.startsWith("native-documents")
+              : issuesOnly
+                ? name.startsWith("native-issues")
+                : engineeringOnly
+                  ? name.startsWith("native-engineering")
+                  : zipOnly
+                    ? name.startsWith("native-zip")
+                    : contractOnly
+                      ? name === "native-outputs-contract.test.ts"
+                      : recoveryOnly
+                        ? name === "native-outputs-recovery.test.ts"
+                        : outputsOnly
+                          ? name.startsWith("native-outputs") ||
+                            name === "native-output-cache-unit.test.ts" ||
+                            name === "native-issues-workflow.test.ts"
+                          : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -252,6 +262,16 @@ const contractEvidence =
         )
         .then(JSON.parse)
         .catch(() => null);
+const productEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(
+          path.join(runRoot, "native-product-consistency-evidence.json"),
+          "utf8",
+        )
+        .then(JSON.parse)
+        .catch(() => null);
 let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -262,35 +282,38 @@ let passed =
       (legacy
         ? nativeEvidence?.verdict === "PASS" &&
           contextEvidence?.verdict === "PASS"
-        : apiOnly
-          ? apiEvidence?.verdict === "PASS"
-          : documentsOnly
-            ? documentsEvidence?.verdict === "PASS"
-            : issuesOnly
-              ? issuesEvidence?.verdict === "PASS"
-              : contractOnly
-                ? contractEvidence?.verdict === "PASS"
-                : recoveryOnly
-                  ? recoveryEvidence?.verdict === "PASS"
-                  : outputsOnly
-                    ? outputEvidence?.verdict === "PASS" &&
-                      outputLargeEvidence?.verdict === "PASS" &&
-                      recoveryEvidence?.verdict === "PASS" &&
-                      contractEvidence?.verdict === "PASS"
-                    : zipOnly
-                      ? zipEvidence?.verdict === "PASS"
-                      : engineeringOnly
-                        ? engineeringEvidence?.verdict === "PASS"
-                        : wrapperEvidence?.verdict === "PASS" &&
-                          apiEvidence?.verdict === "PASS" &&
-                          documentsEvidence?.verdict === "PASS" &&
-                          issuesEvidence?.verdict === "PASS" &&
-                          engineeringEvidence?.verdict === "PASS" &&
-                          zipEvidence?.verdict === "PASS" &&
-                          outputEvidence?.verdict === "PASS" &&
-                          outputLargeEvidence?.verdict === "PASS" &&
-                          recoveryEvidence?.verdict === "PASS" &&
-                          contractEvidence?.verdict === "PASS")));
+        : productOnly
+          ? productEvidence?.verdict === "PASS"
+          : apiOnly
+            ? apiEvidence?.verdict === "PASS"
+            : documentsOnly
+              ? documentsEvidence?.verdict === "PASS"
+              : issuesOnly
+                ? issuesEvidence?.verdict === "PASS"
+                : contractOnly
+                  ? contractEvidence?.verdict === "PASS"
+                  : recoveryOnly
+                    ? recoveryEvidence?.verdict === "PASS"
+                    : outputsOnly
+                      ? outputEvidence?.verdict === "PASS" &&
+                        outputLargeEvidence?.verdict === "PASS" &&
+                        recoveryEvidence?.verdict === "PASS" &&
+                        contractEvidence?.verdict === "PASS"
+                      : zipOnly
+                        ? zipEvidence?.verdict === "PASS"
+                        : engineeringOnly
+                          ? engineeringEvidence?.verdict === "PASS"
+                          : wrapperEvidence?.verdict === "PASS" &&
+                            apiEvidence?.verdict === "PASS" &&
+                            documentsEvidence?.verdict === "PASS" &&
+                            issuesEvidence?.verdict === "PASS" &&
+                            engineeringEvidence?.verdict === "PASS" &&
+                            zipEvidence?.verdict === "PASS" &&
+                            outputEvidence?.verdict === "PASS" &&
+                            outputLargeEvidence?.verdict === "PASS" &&
+                            recoveryEvidence?.verdict === "PASS" &&
+                            contractEvidence?.verdict === "PASS" &&
+                            productEvidence?.verdict === "PASS")));
 async function collectSnapshots() {
   const snapshots = [];
   async function snapshot(directory) {
@@ -347,23 +370,26 @@ const report = {
   architecture: legacy
     ? "HISTORICAL_LEDGER_FIXTURES_ONLY"
     : "YGL_NATIVE_WRAPPER",
-  test_suite: apiOnly
-    ? "API_FALLBACK"
-    : documentsOnly
-      ? "NATIVE_DOCUMENTS"
-      : issuesOnly
-        ? "RETROSPECTIVE_ISSUES"
-        : contractOnly
-          ? "OUTPUT_CONTRACT"
-          : recoveryOnly
-            ? "OUTPUT_RECOVERY"
-            : outputsOnly
-              ? "SNAPSHOT_OUTPUTS"
-              : zipOnly
-                ? "ZIP_SAFETY"
-                : engineeringOnly
-                  ? "ENGINEERING_CONTRACTS"
-                  : "FULL",
+  test_suite: productOnly
+    ? "PRODUCT_CONSISTENCY"
+    : apiOnly
+      ? "API_FALLBACK"
+      : documentsOnly
+        ? "NATIVE_DOCUMENTS"
+        : issuesOnly
+          ? "RETROSPECTIVE_ISSUES"
+          : contractOnly
+            ? "OUTPUT_CONTRACT"
+            : recoveryOnly
+              ? "OUTPUT_RECOVERY"
+              : outputsOnly
+                ? "SNAPSHOT_OUTPUTS"
+                : zipOnly
+                  ? "ZIP_SAFETY"
+                  : engineeringOnly
+                    ? "ENGINEERING_CONTRACTS"
+                    : "FULL",
+  native_product_consistency_evidence: productEvidence,
   native_output_contract_evidence: contractEvidence,
   native_output_recovery_evidence: recoveryEvidence,
   native_output_evidence: outputEvidence,
@@ -400,25 +426,27 @@ const output = path.join(
   "docs/verification",
   legacy
     ? "legacy-tests.json"
-    : apiOnly
-      ? "api-tests.json"
-      : documentsOnly
-        ? "documents-tests.json"
-        : issuesOnly
-          ? "issues-tests.json"
-          : contractOnly
-            ? "output-contract-tests.json"
-            : recoveryOnly
-              ? "output-recovery-tests.json"
-              : outputsOnly
-                ? "outputs-tests.json"
-                : zipOnly
-                  ? "zip-tests.json"
-                  : engineeringOnly
-                    ? "engineering-tests.json"
-                    : unitOnly
-                      ? "unit-tests.json"
-                      : "native-wrapper-tests.json",
+    : productOnly
+      ? "product-consistency-tests.json"
+      : apiOnly
+        ? "api-tests.json"
+        : documentsOnly
+          ? "documents-tests.json"
+          : issuesOnly
+            ? "issues-tests.json"
+            : contractOnly
+              ? "output-contract-tests.json"
+              : recoveryOnly
+                ? "output-recovery-tests.json"
+                : outputsOnly
+                  ? "outputs-tests.json"
+                  : zipOnly
+                    ? "zip-tests.json"
+                    : engineeringOnly
+                      ? "engineering-tests.json"
+                      : unitOnly
+                        ? "unit-tests.json"
+                        : "native-wrapper-tests.json",
 );
 await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 if (!passed) process.stderr.write(stdout + stderr);

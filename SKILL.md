@@ -2,7 +2,7 @@
 name: ecom-retouch-flow
 description: 用于电商商品图精修、物理参数到结构解释与可视参考、整套购买决策策划与分镜、返图语义复核、已有图片接手、连续修图、图库/长图输出，以及原生项目 ZIP 交接和标签评分复用。基于 ygl-trees 原生 CLI；不用于普通翻译、泛电商问答或源码 issues 实现。
 metadata:
-  version: "0.1.5"
+  version: "0.1.6"
   status: "candidate"
   product-contract: "0.4.0-native"
 ---
@@ -76,6 +76,14 @@ metadata:
 - **结论及返回阶段**：明显矛盾FAIL；缺据/看不清UNKNOWN；未看记NOT_RUN，覆盖聚合保留NOT_EVALUATED。必检FAIL/UNKNOWN不能被总体PASS绕过。策略失败回矩阵/分镜，事实缺口补证或删承诺，关系错误回制作，字号/脚注回本地排版；不无限加图或用小字掩盖相反画面。
 
 invariant set只列有来源/视角范围的保持项，逐项review；低清或遮挡导致无法判断时记UNKNOWN。通过只允许推进当前候选，**不自动生成商品事实、用户接受或整套交付**。真实观察、已知案例回放、合成fixture、独立盲复核分别报告。
+
+## 当前SKU一致性与受保护产品层
+
+product-accurate先按[原生一致性契约](docs/ENGINEERING-CONTRACTS.md#商品一致性与最终产品层)在现有invariant spec钉当前SKU、合格母版/来源/视角、不可变必检、允许变化与本任务必须证明项。每次派发核真实input/refs，结构母版须明确product-structure职责；登记过或以前传过不等于本次已传，颜色参考不代替结构约束。整图重绘仍为软参考候选，不许自报硬锁。
+
+相容视角下可明确选protected-layer：AI只作环境，既有asset transform的唯一product-composite按冻结mask/坐标/等比尺寸/可选前景/最终PNG或JPEG配方确定性合成，原生再从CAS重建最终字节。首版只实现平移/等比缩放/显式遮挡，必证内区不透明无遮挡；不支持透视/任意融合，不默切用户制作路线。后续resize/crop/融合/编码成新对象不继承旧proof，应按新配方重建并实际复核。正式套图二次派生暂不当保护层交付，预览也不升级为合格成品。
+
+母版资格来自可靠精确原文而非任意citation/旧生成图ID；像素/父链保护、商品语义、毫米事实和用户接受分别判断。必检任一未通过仍禁止接受/交付/收口，不降concept绕过、不无限重生成；unknown先对账、received不重发。
 
 ## 连续执行与已有结果
 

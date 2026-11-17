@@ -26,4 +26,6 @@ step.content_obligations与step.invariant_items分别描述本图须讲清的业
 
 物理参数任务先读[参数到可视参考契约](PHYSICAL-REFERENCE-WORKFLOW.md)：六层定义分开，尺寸绑定部件/基准/构型/载荷与来源精度，参考逐张注明事实或示意、用途和不复制项。宿主按job.references的顺序/职责与实际字节使用参考；普通design正文不自动成为prompt，执行者须把必要条件与禁项编入当前步骤。数字写进prompt不构成物理保证，实验控制值不改facts，缺成像条件不能单凭实体尺寸判露出量FAIL。编辑稿非成品/非实测，保留新轮廓、修复接缝/台阶/阴影，不复制标线或恢复旧错误轮廓。
 
+product-accurate还须读取job.product_contract的当前SKU、合格母版、路线和允许变化；本次参考包中的product-structure是结构职责，不仅颜色。若protected-layer，模型结果仅为环境候选，最终必须按[确定性产品层契约](ENGINEERING-CONTRACTS.md#商品一致性与最终产品层)另合成并复验，不把宿主“保持一致”回执当锁定。必检FAIL/UNKNOWN仍阻断接受/交付，字节保护不代替实际观察。
+
 测试中的合成图片和确认文字是协议夹具。真实宿主 AI 出图、商品语义质量和用户满意度分别验证，不能用夹具 PASS 替代。

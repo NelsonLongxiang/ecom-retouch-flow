@@ -80,6 +80,32 @@ plan只检查当前step.fact_keys实际依赖的争议。无关外观任务可�
 
 保持项的文本和适用范围随计划进入宿主任务单和API提示词，原始来源留在本地审计。规范变化使依赖的计划待复核，并重新锁定相关任务节点；旧运行不能绕过新规范继续派发。
 
+## 商品一致性与最终产品层
+
+product-accurate不是模型硬锁。现在必须先以现有invariant set声明product_consistency，原生spec仍是唯一契约，不增账本/几何引擎。不可变项和本任务必须证明的内容引用items中的required:true ID；允许成像变化单列，未知结构不补造，原必检FAIL/UNKNOWN/未评估不能被总体接受、字节保护或概念降级抵消。已有product-accurate任务不得在plan内静默改成concept；范围实变应另建明确任务并保留旧失败。
+
+最小结构（占位身份须换为实际读到的值）：
+
+```json
+{"invariants":{"schema":"retouch.invariants/v1","items":[{"id":"structure","text":"保留已知部件和可见截面","scope":"确认正面视角","required":true,"source":{"artifact_id":"<可靠原文>","quote":"<当前SKU/母版hash/视角/合格依据原文>"}}],"product_consistency":{"schema":"retouch.product-consistency/v1","sku":"<当前SKU>","master":{"media_id":"<母版>","sha256":"<实际hash>"},"basis":{"artifact_id":"<可靠原文>","version":1,"content_hash":"<正文digest>","quote":"<精确原文>"},"view":"<原文中的相容视角>","qualification":"<原文中的合格依据>","route":"reference","immutable_ids":["structure"],"must_prove_ids":["structure"],"allowed_changes":[{"kind":"position","conditions":"<本任务允许范围>"}]}}}
+```
+
+basis首版只接受本地user-original/confirmed-fact的spec/design，绑定精确ID/version/content_hash/quote；摘录必须同时包含当前SKU、母版实际hash、view和qualification。普通citation或Agent解释不能仅因已登记、有ID就确认旧生成图为合格母版；跨项目引用先核资格并保留本地真实确认，不自动升级。媒体原有original/reference/postprocess/candidate角色不代表合格，商品事实仍由facts承载，图像认可不确认毫米规格。
+
+route为reference、whole-image或protected-layer。前两者每一步实际请求须包含master：首步以其为input时声明step.input_role=product-structure，否则在step.references中实际携带该媒体并声明role=product-structure、purpose=product-structure固定职责，拒绝冲突自由用途；后续步骤不得因为前序曾用过原图而漏传。API按有序父链核传输规范化后的实际字节/请求digest，不要求规范化PNG等于原文件hash；提示词明确结构职责，purpose不能把结构母版仅降为色彩参考。whole-image仍是软引导候选，不声明硬锁。plan与host job钉住一致性spec的ID/version/hash及副本；依赖改变先复核新计划，unknown/received不重发。
+
+protected-layer是显式替代路线：模型可仅制作环境，不必把母版送给它，但最终产品必须用确定性本地合成回接。首版不接受step.region的固定旧轮廓裁块式“保护”；不默切用户已确认制作路线。额外字段为mask（media_id/sha256，须同母版坐标和母版父链，mask hash也在basis摘录）、visible_regions（item_id/x/y/width/height，每个must_prove_id至少一个母版坐标内全不透明必证内区）、compositions（有限配方清单）。配方固定id、canvas_width/height、x/y、等比width/height、可选foreground精确media/hash以及最终encoding。
+
+保护层仅实现position/uniform-scale/occlusion，其他光照/调色/透视允许项在此路线明确拒绝；有依据的新视图可作为另经资格确认的母版，但不自动从平面造3D。产品蒙版的亮度×alpha与母版alpha共同决定层；必证内区不得透明或被前景遮挡，抗锯齿边缘不选作全不透明必证区。范围声明由实际来源/任务负责，软件不能知道任意小区是否足以证明商品语义。
+
+asset transform仍用原入口，唯一operation为product-composite：contract_id/contract_version/contract_hash、recipe_id，以及与配方精确一致的x/y/width/height、可选foreground_id、encoding。inputs必须实际包含背景、母版、mask和可选前景，分别钉hash/职责；encoding为PNG，或明确quality/background的JPEG。渲染固定sRGB、lanczos3等比重采样、alpha-over顺序和版本指纹。原生postprocess-complete从CAS重建预期最终文件，exact bytes一致后才保存product_protection，父链/trace本身不能冒充保护成功。
+
+接受/交付/完成交付、run、suite和关闭仍核当前必检/适用性/接受；产品层再从CAS复验当前契约和最终hash/实际字节。JPEG属于本次唯一操作最终编码，后续resize/crop/融合得到新对象不继承证明：改契约配方后从原母版重新合成并复核。首版正式suite output_profile暂拒受保护媒体的再派生交付；preview允许显示审阅衍生，但不能称其产品保护通过，普通完整原图包可交付已验证终稿。不得为收口删除失败或改成概念图。
+
+run complete的metadata可含tool/tool_receipt、raw_output_id、processed_output_id，指向已保全的原始和最终本地对象；相同请求键绑定同对象与回执，原生候选保留raw/current input祖先链。没有最终合成对象时不冒充锁定。ZIP携带retouch-product-consistency/v1 required能力；预检复核冻结身份、包内CAS和最终重建，clone重映射原生ID并重绑hash，历史源授权仍不可直接执行。渲染器漂移明确拒绝，不能把跨版本不兼容当新视觉FAIL。
+
+上述字节保护不证明母版本身事实正确、模型服从、全图几何/毫米准确、Agent看图质量或用户接受；实际观察/来源/用户决定分别留证。本轮不安装新依赖或调用真实图像服务。
+
 ## E05 · 原生本地后处理
 
 `asset transform <task-id> --expected-revision <rev>` 使用显式inputs（id/sha256/role）、input_id和operations。支持extract、mask、repair、composite、annotate、resize。所有输入、操作、坐标、Sharp/libvips版本、字体和实际输出绑定到原生local-postprocess execution及media.transform；多图父链和字体用途通过原生关系保全。

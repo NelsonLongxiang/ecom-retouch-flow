@@ -29,6 +29,10 @@ import {
 import { registerWorkspace, taste } from "../src/native/context.ts";
 import { readZip, writeZip } from "../src/infrastructure/zip.ts";
 import { apiPrompt } from "../src/native/plugin/api-contract.mjs";
+import {
+  registerProductConsistency,
+  checkProductItems,
+} from "./helpers/product-consistency-fixture.ts";
 const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
 async function fixture(name: string) {
   const parent = await fs.mkdtemp(
@@ -760,6 +764,14 @@ test(
       })
     ).artifact;
     const rawFacts = JSON.parse(facts.content);
+    const consistency = await registerProductConsistency(
+      c,
+      p,
+      t.id,
+      input,
+      "reference",
+      "facts9",
+    );
     const plan = async (purpose: string, safe_strategy?: string) =>
       call("plan", {
         project: p,
@@ -770,6 +782,7 @@ test(
         steps: [
           {
             id: "storage",
+            input_role: "product-structure",
             prompt: "收纳展示",
             needs: [],
             fact_keys: ["drawer.interior", "dimensions.width"],
@@ -786,6 +799,13 @@ test(
       code: "FACTS_INCOMPLETE",
     });
     const safe = (await plan("product-accurate", "closed-drawer")).plan;
+    await checkProductItems(
+      c,
+      p,
+      input,
+      consistency.contract,
+      "facts9-invariants",
+    );
     const compiled = apiPrompt(JSON.parse(safe.content).steps[0], [], []);
     assert.ok(
       compiled.includes("14.96") &&
