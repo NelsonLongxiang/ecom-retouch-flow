@@ -1,18 +1,14 @@
 ---
 name: ecom-retouch-flow
-description: 用基于 ygl-trees 原生 CLI 的电商修图流组织部位需求、连续修图、宿主结果回接、检查交付，以及标签反馈、跨工作区设计引用和 ZIP 上下文接手。
+description: 用于电商商品图精修、物理参数到结构解释与可视参考、整套购买决策策划与分镜、返图语义复核、已有图片接手、连续修图、图库/长图输出，以及原生项目 ZIP 交接和标签评分复用。基于 ygl-trees 原生 CLI；不用于普通翻译、泛电商问答或源码 issues 实现。
+metadata:
+  version: "0.1.5"
+  status: "candidate"
+  product-contract: "0.4.0-native"
 ---
 
-# 电商修图流
+# 电商修图流 · 项目内发现入口
 
-从本文件向上三层定位项目根，读取 [完整业务技能](../../../SKILL.md)。详细命令只在根技能链接的 CLI 与宿主协议维护；此入口依赖当前仓库，不作为独立全局技能包。
+先核[README目录地图与门禁](../../../README.md#项目目录定义与治理)，再读取 [完整业务技能](../../../SKILL.md) 后行动；本文件不是规则副本。根正文唯一维护状态分流、业务判断、工具及授权边界，详细协议按根正文链接按需读取。
 
-正常入口为 `node src/cli.ts`（0.4.0 ygl 原生封装）。接手先读 project brief；有文字且未停用的需求参与，后续步骤承接前序实际结果。宿主工具只在首次非重放 dispatch 允许执行时调用一次；unknown 先对账，不能重发。API fallback 仅经明确配置与费用／外发授权后显式调用，已收到结果的本地恢复不能再次访问图像服务。
-
-跨工作区使用原生项目 ZIP，标签与 design/spec 检索覆盖所有登记工作区。评分、结语和完结来自用户；频率不代表满意度。旧账本和 v1 包须显式只读迁移，不能在真实工作区继续旧账本写入。
-
-已授权的当前 Codex 配置用 codex-model 来源复用，先诊断各层能力，不重问密钥或把本地 ready 当认证。商品事实按字段原生 spec 管理，概念与实物准确用途分开，视觉接受不提升规格；反馈保留原始量表，不默认换算五分制。交付先预检，已准备的失败按原键恢复或显式处置。操作细节由根技能链接维护。
-
-业务方案以关联项目／任务的原生 design/spec/citation 为正式入口。brief.documents → artifact show 读取，artifact revise 按 ID/version/hash 修订 design/spec，artifact history 查历史。Markdown 仅由 artifact export 显式生成可读副本，目录由交付需求决定；不将 docs 或 v1/v2.md 当正式业务版本库。
-
-新增流程先读根技能的用途覆盖、证据冲突、旧图复核、逐项保持、本地变换和套图快照规范。技术PASS不代表用途覆盖；旧图需artifact revalidate后再按当前上下文接受，套图只接受明确槽位。后处理复用asset transform；图片预览ZIP与完整项目ZIP分开。完整格式由根技能链接的ENGINEERING-CONTRACTS维护。
+本入口依赖当前仓库，不能独立复制为全局技能包。根正文或其所需参考不可读时，停止依赖它的操作并说明缺失，不从摘要补造规则。加载、实际使用、独立验收和收益分别取证；版本记录见 [技能演化](../../../docs/SKILL-EVOLUTION.md)。

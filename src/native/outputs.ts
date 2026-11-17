@@ -470,6 +470,7 @@ export async function exportOutputs(
         descriptor,
         owner.meta.retouch.revision,
         renderKey,
+        { reuseCompleted: true },
       );
       const a = result.artifact;
       sources.set(a.id, a);

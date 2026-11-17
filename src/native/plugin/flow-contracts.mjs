@@ -22,6 +22,127 @@ export function words(v, label) {
   );
   return v.trim();
 }
+export function assertPostprocessOutput(execution, image, artifacts) {
+  const descriptor = content(execution),
+    em = meta(execution),
+    im = meta(image),
+    transform = im?.transform;
+  const provenance = (ok) =>
+    need(
+      ok,
+      "POSTPROCESS_PROVENANCE",
+      "后处理输出与执行描述/渲染溯源不一致；保留原事实，不补造执行关系",
+    );
+  const record = (value) =>
+    value && typeof value === "object" && !Array.isArray(value);
+  provenance(
+    execution.kind === "execution" &&
+      image.kind === "media" &&
+      execution.project_id === image.project_id,
+  );
+  provenance(
+    record(descriptor) &&
+      descriptor.schema === "retouch.postprocess/v1" &&
+      Array.isArray(descriptor.inputs) &&
+      descriptor.inputs.length > 0 &&
+      descriptor.inputs.every(
+        (i) =>
+          record(i) &&
+          typeof i.id === "string" &&
+          typeof i.sha256 === "string" &&
+          typeof i.role === "string",
+      ) &&
+      Array.isArray(descriptor.operations) &&
+      descriptor.operations.length > 0 &&
+      descriptor.operations.every(
+        (op) =>
+          record(op) &&
+          [
+            "extract",
+            "mask",
+            "repair",
+            "composite",
+            "annotate",
+            "resize",
+            "extend",
+            "encode",
+          ].includes(op.op),
+      ) &&
+      record(descriptor.renderer),
+  );
+  provenance(
+    record(transform) &&
+      transform.schema === "retouch.postprocess/v1" &&
+      transform.execution_id === execution.id &&
+      Array.isArray(transform.inputs) &&
+      Array.isArray(transform.trace) &&
+      record(transform.renderer) &&
+      record(em.renderer),
+  );
+  provenance(
+    digest(transform.inputs) === digest(descriptor.inputs) &&
+      digest(transform.renderer) === digest(descriptor.renderer) &&
+      digest(em.renderer) === digest(descriptor.renderer),
+  );
+  provenance(
+    Array.isArray(em.inputs) &&
+      digest(em.inputs) === digest(descriptor.inputs.map((i) => i.id)),
+  );
+  provenance(transform.trace.length === descriptor.operations.length);
+  const source = artifacts.find(
+    (a) =>
+      a.id === descriptor.input_id &&
+      a.kind === "media" &&
+      a.project_id === execution.project_id,
+  );
+  provenance(source && descriptor.inputs.some((i) => i.id === source.id));
+  const input = meta(source);
+  const frame = (value) =>
+    record(value) &&
+    Number.isSafeInteger(value.width) &&
+    value.width > 0 &&
+    Number.isSafeInteger(value.height) &&
+    value.height > 0 &&
+    value.width * value.height <= 50_000_000;
+  let current = { width: input?.width, height: input?.height };
+  provenance(frame(current));
+  for (let n = 0; n < descriptor.operations.length; n++) {
+    const step = transform.trace[n],
+      operation = descriptor.operations[n];
+    provenance(
+      record(step) &&
+        digest(step.operation) === digest(operation) &&
+        frame(step.from) &&
+        frame(step.to),
+    );
+    provenance(
+      step.from.width === current.width && step.from.height === current.height,
+    );
+    let expected = current;
+    if (operation.op === "resize")
+      expected = { width: operation.width, height: operation.height };
+    else if (operation.op === "extract")
+      expected = {
+        width: operation.region?.width,
+        height: operation.region?.height,
+      };
+    else if (operation.op === "extend")
+      expected = {
+        width: current.width + operation.left + operation.right,
+        height: current.height + operation.top + operation.bottom,
+      };
+    provenance(
+      frame(expected) &&
+        step.to.width === expected.width &&
+        step.to.height === expected.height,
+    );
+    current = { width: step.to.width, height: step.to.height };
+  }
+  provenance(
+    frame(im) && im.width === current.width && im.height === current.height,
+  );
+}
+
 export function latest(artifacts, role, task) {
   return (
     artifacts

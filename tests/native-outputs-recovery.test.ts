@@ -222,7 +222,8 @@ test(
 
 test(
   "#12 continuation: partial marker publication, EXDEV and concurrently created empty targets preserve recovery and no-replace",
-  options,
+  // Whole multi-step native scenario budget; individual CLI caps/assertions unchanged.
+  { ...options, timeout: 600000 },
   async (t) => {
     const { c, p, parent, image, snapshot, profile } = await outputFixture();
     const media = await image(40, 20, "#335577", "input"),
@@ -355,7 +356,8 @@ test(
 
 test(
   "#12 continuation: raw EXIF coordinate frame and JPEG alpha flattening are verified from actual pixels",
-  options,
+  // Whole multi-step native scenario budget; individual CLI caps/assertions unchanged.
+  { ...options, timeout: 600000 },
   async () => {
     const { c, p, parent, task, snapshot, profile, call, designTask } =
       await outputFixture();

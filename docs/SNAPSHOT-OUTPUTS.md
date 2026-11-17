@@ -52,7 +52,7 @@
 
 派生由既有asset transform产生，media保留父链、实际尺寸/hash、操作trace与渲染指纹。新增有限操作为extend（非负边距/背景，受像素预算约束）和encode（PNG/JPEG、sRGB、JPEG质量与透明背景合成颜色）；不是新万能DSL。
 
-原生postprocess请求身份由项目/任务当前binding、输入ID/hash、操作与renderer派生，不含整个snapshot的无关变化。相同页和配方复用已有execution/media/CAS；局部替换只重做依赖该页的输出。完成同键重放校验全部组件，既不重写未变文件，也不新增业务记录/图像请求。
+套图派生身份由项目/任务当前binding、输入ID/hash、操作与renderer确定，不含整个snapshot或任务状态revision的无关变化。只有已完成且仍适用的派生可复用：套图内部通过只读postprocess-reuse重新核当前任务revision、业务绑定、确切描述/renderer、输入hash、输出适用性与父链，并核输出CAS真实字节；不重放带旧revision的postprocess-prepare写请求。状态revision变化但业务绑定不变可复用，goal/需求/epoch、批准、输入、描述或renderer变化不能借缓存绕过。complete、reuse及普通已完成回放共用输出交叉绑定校验：输出transform的execution_id、完整inputs/职责/hash、renderer和逐步operation必须与执行descriptor一致，trace起始/连续/最终尺寸必须与源图、操作和输出尺寸一致；缺字段或错绑以POSTPROCESS_PROVENANCE拒绝，不补造旧记录。该校验只证明登记溯源一致，不证明像素语义正确或同身份恶意数据不可伪造。只读reuse不创建工件、事件、关系或接受。普通asset transform仍先按完整请求正文执行严格同键冲突校验，不放宽其重放语义。完成导出重放仍核全部组件，不重写未变文件、不新增图像请求。
 
 过期媒体不因渲染换goal或复制成当前候选。先task context-review、实际artifact revalidate adopt/reject，再冻结新suite；旧接受不继承。preview可包含当前但未接受候选并标状态，不能冒充delivery；delivery仍核对接受、覆盖、保持项和未知请求。
 
@@ -74,6 +74,14 @@
 组件marker的authority=frozen-bytes-only，含native_delivery_id、requires_native_current_check=true、not_business_acceptance=true；只证明冻结selection的组件字节齐全，不权威声明实时current、用户接受或native completed。消费者必须另读原生状态与当前接受范围；只拿离线包不得宣称当前业务验收。
 
 图片包始终restorable_workspace=false，context inspect/import不会把它当retouch.context/v2。用户接受、任务关闭、上架/部署不由导出自动产生。
+
+## #12 缓存revision补丁验证状态
+
+套图内部completed-cache复用已补只读当前性/绑定/描述核验，普通transform严格请求意图规则不变。评审R1指出的执行与输出溯源错挂现由complete/reuse/普通完成回放共用交叉校验拒绝。原19项隔离用例中的请求门、数据库/事务为夹具，其REQUEST_CONFLICT红测不称原生幂等复现；当前相关正式单元和真实原生任务收口后重导/同父图不同操作错挂回归已在开发全量实际执行通过。
+
+本轮类型检查退出0，outputs专项33/33、完整原生80/80 PASS；80份输入起止一致，单CLI60秒、ZIP/像素上限及全部断言保留。长集成总预算的几次真实超时、API成功路径100ms超时与早期TS2554分别保留原失败证据，修后完整重跑通过，不改写旧报告。详见[开发验证与历史](verification/README.md)。原生组件/字节正确不证明真实商品视觉、用户接受或几何毫米精度。
+
+原检测席已完成同字节官方全量80/80及一次发布竞态3/3软件验收PASS，输入/原件/磁盘一致，原失败保留。晚marker反例明确了边界：最后check返回后再变更可能留下字节marker，但complete仍拒绝过期、原生保持preparing且无完成回执；marker必须结合原生当前状态读取，不保证文件系统与数据库原子发布。按原授权进行窄仓库交付，不自动合并或关闭issue；真实视觉和新P1 #18保护层不属于本次软件验收。
 
 ## 验证边界
 

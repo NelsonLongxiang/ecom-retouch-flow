@@ -22,7 +22,8 @@ const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
 
 test(
   "#12: two different page sets share one native profile entry, preserve aspect/ICC/lineage and reuse unchanged derivatives",
-  { skip: !entry, timeout: 300000 },
+  // This is a multi-export/restore scenario; individual native calls keep their cap.
+  { skip: !entry, timeout: 600000 },
   async (t) => {
     const f = await fixture(),
       { parent, c, p, image, snapshot, profile } = f;
@@ -596,5 +597,235 @@ test(
       }) + "\n",
       { flag: "wx" },
     );
+  },
+);
+
+test(
+  "#12 cache: normal task closure changes revision but identical output exports reuse completed native derivatives",
+  { skip: !entry, timeout: 180000 },
+  async () => {
+    const { parent, c, p, designTask, call, profile } = await fixture();
+    const media = (
+      await registerBytes(
+        c,
+        p,
+        designTask.id,
+        await sharp({
+          create: { width: 40, height: 20, channels: 3, background: "#335577" },
+        })
+          .png()
+          .toBuffer(),
+        { role: "postprocess" },
+        "cache-close-input",
+      )
+    ).artifact;
+    const beforeTask = await c.call("task-view", {
+      project: p,
+      id: designTask.id,
+    });
+    const revision = beforeTask.task.meta.retouch.revision;
+    const snapshot = (
+      await call("suite-snapshot", {
+        project: p,
+        task: designTask.id,
+        name: "cache after task close",
+        expected_id: null,
+        expected_revision: revision,
+        slots: [
+          {
+            id: "p0",
+            role: "synthetic design page",
+            media_id: media.id,
+            sha256: JSON.parse(media.meta).sha256,
+          },
+        ],
+      })
+    ).artifact;
+    const base = profile(1, 80);
+    const input = {
+      mode: "preview",
+      output_profile: {
+        ...base,
+        gallery: { ...base.gallery, size: 64, padding: 2 },
+      },
+    };
+    const first = await exportSuite(
+      c,
+      p,
+      snapshot.id,
+      path.join(parent, "cache-before-close"),
+      input,
+      "cache-before-close",
+    );
+    const source = await c.call("show", { project: p, id: media.id });
+    const select = (outputs: any) => [
+      ...outputs.slots.flatMap((s: any) => [
+        s.png.media_id,
+        s.gallery.media_id,
+        s.long_page.media_id,
+      ]),
+      outputs.long.media_id,
+      outputs.reading.media_id,
+      outputs.overview.media_id,
+    ];
+    const originalIds = select(first.outputs);
+    const objectTimes = new Map<string, number>();
+    for (const id of new Set(originalIds)) {
+      const a = await c.call("show", { project: p, id });
+      objectTimes.set(
+        id,
+        (await fs.stat(path.join(c.root, JSON.parse(a.meta).object_path)))
+          .mtimeMs,
+      );
+    }
+    const closed = await call("task-close", {
+      project: p,
+      task: designTask.id,
+      expected_revision: revision,
+      statement:
+        "ISOLATED FIXTURE: linked native design completed, no real user acceptance",
+    });
+    assert.equal(JSON.parse(closed.task.meta).retouch.revision, revision + 1);
+    assert.equal(JSON.parse(closed.task.meta).status, "done");
+    const before = await c.call("snapshot", { project: p });
+    const second = await exportSuite(
+      c,
+      p,
+      snapshot.id,
+      path.join(parent, "cache-after-close"),
+      input,
+      "cache-after-close",
+    );
+    assert.equal(second.image_api_requests, 0);
+    assert.deepEqual(select(second.outputs), originalIds);
+    const after = await c.call("snapshot", { project: p });
+    for (const kind of ["media", "execution"])
+      assert.equal(
+        after.tables.artifacts.filter((a: any) => a.kind === kind).length,
+        before.tables.artifacts.filter((a: any) => a.kind === kind).length,
+      );
+    assert.equal(
+      after.tables.artifacts.filter((a: any) => a.kind === "delivery").length,
+      before.tables.artifacts.filter((a: any) => a.kind === "delivery").length +
+        1,
+    );
+    assert.equal(
+      (await c.call("show", { project: p, id: media.id })).meta,
+      source.meta,
+    );
+    for (const [id, time] of objectTimes) {
+      const a = await c.call("show", { project: p, id });
+      assert.equal(
+        (await fs.stat(path.join(c.root, JSON.parse(a.meta).object_path)))
+          .mtimeMs,
+        time,
+      );
+    }
+    const newEvents = after.tables.events.filter(
+      (e: any) => !before.tables.events.some((old: any) => old.id === e.id),
+    );
+    assert.equal(
+      newEvents.some(
+        (e: any) =>
+          e.kind === "retouch.command" &&
+          ["postprocess-prepare", "postprocess-complete", "media"].includes(
+            JSON.parse(e.payload).action,
+          ),
+      ),
+      false,
+    );
+  },
+);
+
+test(
+  "#12 review R1: completing execution A with real same-parent output B is rejected before any native completion write",
+  { skip: !entry, timeout: 180000 },
+  async () => {
+    const { parent, c, p, task, image, call } = await fixture();
+    const source = await image(40, 20, "#335577", "provenance-source");
+    const view = await c.call("task-view", { project: p, id: task.id });
+    const revision = view.task.meta.retouch.revision;
+    const input = {
+      input_id: source.id,
+      inputs: [
+        {
+          id: source.id,
+          sha256: JSON.parse(source.meta).sha256,
+          role: "synthetic source shared by two operations",
+        },
+      ],
+      operations: [
+        {
+          op: "resize",
+          width: 40,
+          height: 40,
+          fit: "contain",
+          background: "#aa0000",
+        },
+      ],
+    };
+    const other = await transform(
+      c,
+      p,
+      task.id,
+      input,
+      revision,
+      "provenance-operation-b",
+    );
+    const otherDescriptor = JSON.parse(other.execution.content);
+    const descriptorA = {
+      ...otherDescriptor,
+      operations: [{ ...input.operations[0], background: "#ffffff" }],
+    };
+    const a = (
+      await call("postprocess-prepare", {
+        project: p,
+        task: task.id,
+        expected_revision: revision,
+        descriptor: descriptorA,
+      })
+    ).execution;
+    const bytes = await objectBytes(c.root, JSON.parse(other.artifact.meta));
+    assert.equal(bytesHash(bytes), JSON.parse(other.artifact.meta).sha256);
+    assert.ok(JSON.parse(other.artifact.meta).parents.includes(source.id));
+    const before = await c.call("snapshot", { project: p });
+    await assert.rejects(
+      c.call(
+        "postprocess-complete",
+        { project: p, id: a.id, output: other.artifact.id },
+        "provenance-wrong-completion",
+      ),
+      { code: "POSTPROCESS_PROVENANCE" },
+    );
+    const after = await c.call("snapshot", { project: p });
+    assert.deepEqual(after.tables.artifacts, before.tables.artifacts);
+    assert.deepEqual(after.tables.relations, before.tables.relations);
+    assert.deepEqual(after.tables.events, before.tables.events);
+    assert.equal(
+      JSON.parse((await c.call("show", { project: p, id: a.id })).meta).status,
+      "prepared",
+    );
+    assert.deepEqual(
+      await c.call("receipt", { request_id: "provenance-wrong-completion" }),
+      {},
+    );
+    const correct = await transform(
+      c,
+      p,
+      task.id,
+      { ...input, operations: descriptorA.operations },
+      revision,
+      "provenance-operation-a",
+    );
+    const proof = JSON.parse(correct.artifact.meta).transform;
+    assert.equal(proof.execution_id, correct.execution.id);
+    assert.deepEqual(
+      proof.inputs,
+      JSON.parse(correct.execution.content).inputs,
+    );
+    assert.equal(proof.trace[0].operation.background, "#ffffff");
+    assert.equal(other.image_api_requests, 0);
+    assert.equal(correct.image_api_requests, 0);
+    assert.ok(parent, "all data belongs to the isolated native fixture");
   },
 );

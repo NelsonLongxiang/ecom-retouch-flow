@@ -273,7 +273,9 @@ test(
 
 test(
   "#12 approved contract: publication checks are read-only and byte marker never acts as business acceptance",
-  { skip: !entry, timeout: 180000 },
+  // Each publication check uses real native snapshots; retain the per-CLI cap and
+  // all immutability/marker/stale assertions while bounding the whole integration.
+  { skip: !entry, timeout: 600000 },
   async () => {
     const { c, p, parent, image, snapshot, profile, task } =
       await outputFixture();

@@ -404,7 +404,8 @@ test(
         protocol: "openai-images-edits/v1",
         model: "gpt-image-2",
         allow_loopback_http: true,
-        timeout_ms: 100,
+        // Positive-path I/O budget is independent of the deliberate timeout fixture.
+        timeout_ms: 5000,
         size: "1024x1024",
         configuration_source: {
           kind: "codex-model",
@@ -531,6 +532,21 @@ test(
       const recent = await checkExecutor(c, p, profile.id, env);
       assert.equal(recent.recent_image_result.execution_id, run.id);
       assert.equal(recent.historical_success_is_current_authentication, false);
+      const timeoutProfile = (
+        await registerExecutor(
+          c,
+          p,
+          {
+            ...candidate,
+            title: "故意超时的独立配置",
+            profile: { ...candidate.profile, timeout_ms: 100 },
+          },
+          "executor-timeout",
+          env,
+        )
+      ).profile;
+      assert.equal(JSON.parse(profile.content).profile.timeout_ms, 5000);
+      assert.equal(JSON.parse(timeoutProfile.content).profile.timeout_ms, 100);
       const second = (
         await call("task-new", {
           project: p,
@@ -557,7 +573,7 @@ test(
           project: p,
           task: second.id,
           input: input2.id,
-          fallback: { profile_id: profile.id },
+          fallback: { profile_id: timeoutProfile.id },
           expected_revision: 0,
           steps: [{ id: "edit", prompt: "fixture", needs: [] }],
         })
@@ -589,7 +605,7 @@ test(
       mode = "timeout";
       await assert.rejects(
         executeApi(c, p, run.id, {
-          profileId: profile.id,
+          profileId: timeoutProfile.id,
           revision: 0,
           requestId: "timeout",
           env,
@@ -600,7 +616,7 @@ test(
       run = await c.call("show", { project: p, id: run.id });
       assert.equal(JSON.parse(run.meta).status, "unknown");
       await executeApi(c, p, run.id, {
-        profileId: profile.id,
+        profileId: timeoutProfile.id,
         revision: 0,
         requestId: "timeout",
         env,

@@ -99,6 +99,7 @@ const files = (await fs.readdir(path.join(root, "tests")))
                       ? name === "native-outputs-recovery.test.ts"
                       : outputsOnly
                         ? name.startsWith("native-outputs") ||
+                          name === "native-output-cache-unit.test.ts" ||
                           name === "native-issues-workflow.test.ts"
                         : name.startsWith("native-")),
   )
@@ -141,12 +142,13 @@ child.stdout.on("data", (chunk) => {
 child.stderr.on("data", (chunk) => {
   stderr += stderrDecoder.write(chunk);
 });
-stdout += stdoutDecoder.end();
-stderr += stderrDecoder.end();
 const exitCode = await new Promise((resolve, reject) => {
   child.on("error", reject);
   child.on("close", (code) => resolve(code));
 });
+// close follows stdout/stderr EOF; flush a final partial code point only now.
+stdout += stdoutDecoder.end();
+stderr += stderrDecoder.end();
 await fs.writeFile(path.join(runRoot, "tests.tap"), stdout);
 await fs.writeFile(path.join(runRoot, "stderr.log"), stderr);
 const counts = {};
@@ -313,6 +315,8 @@ async function collectSnapshots() {
     "package-lock.json",
     "tsconfig.json",
     "scripts/test.mjs",
+    // The native physical-reference regression reads this exact method body.
+    "docs/PHYSICAL-REFERENCE-WORKFLOW.md",
   ])
     snapshots.push({
       file,

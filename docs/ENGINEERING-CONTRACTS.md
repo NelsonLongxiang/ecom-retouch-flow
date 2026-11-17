@@ -54,6 +54,8 @@ plan.stage为sample或expand，默认sample。sample-first下，expand计划及�
 
 Issue #11 在既有接口上补充 [购买决策叙事与返图观察](NARRATIVE-WORKFLOW.md)：先参考/事实、矩阵与整套低成本分镜，再按风险选代表样张；观察指向具体商品对象和义务，保留合法包装、无人白底等正例。原生接口保存真实观察，不自动判断图片语义，不改变sample-first/direct-batch授权边界。
 
+Issue #16进一步提供[物理参数→结构/成像→可视参考→生成/回接→观察修订](PHYSICAL-REFERENCE-WORKFLOW.md)的公共方法，复用facts、design/spec、references.purpose与保持项；六层语义和参考冲突由Agent按正文核对，不引入新schema或自动毫米校验。
+
 ## E02 · 多来源冲突与补证
 
 `conflict record` 追加原生evidence-conflict spec。同字段保留多个候选及各自value、subject（current-sku/reference-sku/unknown）、role、observed_at和精确source。状态初始unresolved；追加来源时传expected_id并重新打开争议，旧裁决不改写。brief.evidence_conflicts和 `conflict list` 直接展示最新未决点。
@@ -73,6 +75,8 @@ plan只检查当前step.fact_keys实际依赖的争议。无关外观任务可�
 `invariant set <task-id> --expected-revision <rev>` 文件为 `{"invariants":{"schema":"retouch.invariants/v1","items":[{"id":"holes","text":"保留一个孔","scope":"原图可见正面","required":true,"source":{"artifact_id":"<可靠来源spec>","quote":"<精确摘录>"}}]}}`。保持项必须声明适用范围；假设或AI重建不能作为确定依据。
 
 `invariant review <media-id>` 与coverage review结构相同，contract_id指当前保持项spec。数量、成年人、颜色、结构、文字和遮挡可独立记录PASS/FAIL/UNKNOWN及观察；`invariant show` 汇总必检项。必检FAIL/UNKNOWN/未评估时，总体PASS、接受和交付不能绕过；候选保留，局部修补产生新媒体和新检查。可选项UNKNOWN不冒充必检失败，也不隐式调用模型。
+
+相对一致性与绝对精度用不同invariant id和观察记录，允许相对FAIL与绝对UNKNOWN同时存在，聚合仍由既有必检门禁决定。适用scope/required在观察前按真实任务声明，不能事后删除失败或降级精度要求放行；可比证据不足为UNKNOWN，未提交检查保持NOT_EVALUATED，NOT_RUN是未观察的验证状态而非新增接口枚举。详见[截面分项方法](PHYSICAL-REFERENCE-WORKFLOW.md#相对截面一致性与绝对毫米分项复核)。
 
 保持项的文本和适用范围随计划进入宿主任务单和API提示词，原始来源留在本地审计。规范变化使依赖的计划待复核，并重新锁定相关任务节点；旧运行不能绕过新规范继续派发。
 

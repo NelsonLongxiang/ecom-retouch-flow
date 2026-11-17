@@ -13,6 +13,8 @@
 
 ## 目录与历史保全
 
+- [README目录地图与写入门禁](README.md#项目目录定义与治理)是本项目唯一职责地图。本项目已明确要求目录治理零容忍：任何归属/职责/授权/保全/生命周期/消费者项为FAIL或UNKNOWN，停止依赖它的写入；不隐藏历史问题或靠地图改字假报通过。治理不授予删除、迁移、共享技能/宿主配置改动权限；已发现宿主系统临时输出和tmp根层旧包的未决状态须保持可见。
+
 - 根目录声明文件为 `README.md`、`AGENTS.md`、`SKILL.md`、`LICENSE`、`.gitignore`、`.gitattributes`、`package.json`、`package-lock.json`、`tsconfig.json`。正式代码进入 `src/`，业务测试进入 `tests/`，可重复工具进入 `scripts/`，面向人的规范和证据进入 `docs/`。
 - `archive/browser-extension/1.5.0-20261114/` 是冻结的原项目快照，包含插件代码、依赖、测试、历史文档及当时设计；不编辑、不安装依赖、不直接运行会向归档写入的测试。恢复方法见其父目录 README。
 - 旧浏览器配置及此前被拒清理的临时对象保留在 `tmp/`，不清空、不换方式删除或移动。技能 junction 保留在 `.agents/`、`.dsh/`，不修改链接指向的技能副本。

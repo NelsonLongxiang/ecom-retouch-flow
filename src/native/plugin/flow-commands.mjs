@@ -23,6 +23,7 @@ import {
   suiteSnapshot,
   suiteView,
   assertInvariants,
+  assertPostprocessOutput,
 } from "./flow-contracts.mjs";
 export const flowReadActions = [
   "coverage-view",
@@ -30,6 +31,7 @@ export const flowReadActions = [
   "invariant-view",
   "suite-view",
   "suite-export-check",
+  "postprocess-reuse",
 ];
 export const flowActions = [
   ...flowReadActions,
@@ -280,6 +282,66 @@ export async function flowCommand(action, b, h) {
       }),
     };
   }
+  if (action === "postprocess-reuse") {
+    const t = await currentTask(mgr, p, b.task);
+    need(
+      t.meta.retouch.revision === b.expected_revision,
+      "REVISION_CONFLICT",
+      "任务已变化，先读取当前版本",
+    );
+    const ex = await artifact(mgr, b.id, p, "execution"),
+      m = meta(ex);
+    need(
+      m.role === "local-postprocess" &&
+        m.status === "completed" &&
+        sameBinding(m, taskBinding(t.a, digest)) &&
+        Array.isArray(m.outputs) &&
+        m.outputs.length === 1,
+      "POSTPROCESS_CONTEXT",
+      "只有同业务上下文的已完成后处理可复用",
+    );
+    const descriptor = content(ex);
+    need(
+      digest(descriptor) === digest(b.descriptor),
+      "RENDERER_DRIFT",
+      "输入、变换或渲染指纹变化不能复用",
+    );
+    for (const input of descriptor.inputs) {
+      const source = await artifact(mgr, input.id, p);
+      need(
+        ["media", "resource"].includes(source.kind) &&
+          meta(source).sha256 === input.sha256,
+        "POSTPROCESS_INPUT",
+        "缓存输入须保留原生媒体/hash",
+      );
+    }
+    for (const op of descriptor.operations)
+      if (
+        op.op === "extract" &&
+        (op.approval || op.source_media_id || op.source_sha256)
+      )
+        cropApproval(op, all);
+    const image = await artifact(mgr, m.outputs[0], p, "media"),
+      im = meta(image);
+    need(
+      im.role === "postprocess" &&
+        im.task_id === t.a.id &&
+        sameBinding(im, m) &&
+        mediaApplicable(image, t.a, all, digest),
+      "POSTPROCESS_CONTEXT",
+      "缓存输出已过期、被拒绝或不属于当前任务",
+    );
+    need(
+      descriptor.inputs
+        .filter((i) => all.find((a) => a.id === i.id)?.kind === "media")
+        .every((i) => im.parents?.includes(i.id)),
+      "POSTPROCESS_LINEAGE",
+      "缓存输出必须保留全部图像来源",
+    );
+    assertPostprocessOutput(ex, image, all);
+    // Read-only: no event, artifact, relation, acceptance or task status is written.
+    return { execution: ex, artifact: image };
+  }
   if (action === "postprocess-prepare") {
     const t = await currentTask(mgr, p, b.task);
     need(
@@ -355,6 +417,7 @@ export async function flowCommand(action, b, h) {
       "POSTPROCESS_LINEAGE",
       "输出须保留全部图像输入",
     );
+    assertPostprocessOutput(ex, image, all);
     m.status = "completed";
     m.outputs = [image.id];
     m.revision++;
