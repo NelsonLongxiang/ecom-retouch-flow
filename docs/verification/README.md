@@ -1,6 +1,23 @@
 # 验证与复现
 
-## 当前开发与独立软件验收
+## Issue #18 · 当前实现候选与验证边界
+
+后续已在新分支实现[当前SKU一致性与最终产品层](../ENGINEERING-CONTRACTS.md#商品一致性与最终产品层)：复用invariant spec钉可靠母版原文/视角/资格/hash、不可变必检、允许变化与必证内区；plan冻结并在每次dispatch核实际结构参考。protected-layer按有限配方固定mask/坐标/等比尺寸/前景/最终PNG或JPEG，原生从CAS重建实际最终字节。参考登记、父链或总体美感不能替代保护与语义复核。
+
+| 本轮证据 | 实际结果与原范围 |
+| --- | --- |
+| 初始原生红测 | product-accurate无一致性规范仍能冻结计划，预期拒绝缺失；正式入口失败现场保留 |
+| 类型检查 | 原第1次Buffer诊断FAIL及各候选旧type结果保留；属主另准仅1次最终type，第4次真实exit0、空诊断、84输入稳定，钉最终b3afbc85候选。该一次许可已消耗，不授更多重跑 |
+| #18专项 | 第2/3次各3/3 PASS，均保留原始输入身份；不自动覆盖后续R3/惰性加载/最后测试修订 |
+| 首次全量run-EFkce8 | 83项81pass/1原生调用unknown/1场景180秒取消，输入稳定。隔离crop有prepare与部分派生，最后派生prepared且无complete/seal；未将unknown当未执行重放 |
+| 最终开发全量run-jCLJiq | 83/83 PASS、exit0、fail/cancel/skip/todo0，84输入起止/最终候选一致，11类领域原件PASS；报告SHA256a3b1df611741d43951eb61c4382cbb2315d181cd5e21f28ad2edd7ae4fd03111 |
+| 独立运行复验 | 官方full83/83 PASS exit0、84输入稳定、11域原件PASS；一次targeted2/3 exit1，首case探针LF分段断言失败且断言前未存multipart原件，母版实际上传/职责/重放后续证据不足；最终结论INCOMPLETE_INDEPENDENT_ACCEPTANCE，不授软件验收done |
+
+最终运行候选b3afbc85…及84输入digest e132e2d1…不是Git提交。R3将结构参考purpose固定为product-structure，编译器不再拼相反自由用途，正式用例比较完整参考段落；Sharp只在产品render/verify时惰性加载，实际渲染器/CAS/exact-byte门仍核，耗时收益未测。缓存收口场景只调整总时限180→600秒，单CLI60秒、全部断言和产品上限不变；原unknown现场和FAIL报告保全。
+
+软件受验84输入保持冻结，仅状态摘要更新。独立原件independent-issue18-eca9af81 SHA256c45363cf9e254789b595bddd70d56ada4108deda14922bb391ea8f3e82fbf102和21份保全文件已核，原报告类型NOT_RUN是其生成时事实；后来明确获准的最终类型PASS单列，不改原报告。追加一次独立失败case补证确认超时未批准，未补跑。属主又明确允许仅将当前在途改动以未合并Draft保全以交回共享检出，再从已交付基线独立纠错；这不是验收放行或部署。真实商品视觉/毫米/隐藏几何/模型/收益仍未验，不自动关闭issue/发版。
+
+## 已交付基线的开发与独立软件验收
 
 2026-11-17，本轮在用户明确批准的有限执行窗口内，以Node24.12.0、已安装的ygl-trees0.125.0及项目正式入口，完成了真实开发门禁。使用隔离原生home、本机HTTP模拟服务与合成图片，不访问默认业务库，不改共享宿主，不调用真实图像或收费API。
 
@@ -19,7 +36,7 @@
 
 针对性一次执行包含after-seal、after-data、after-marker-check三个真实NativeClient/隔离数据库及Sharp/CAS场景。前两者检测到过期后拒绝新marker；最后一次成功check返回后立即改变需求时，marker可能已落盘，但完成命令返回SUITE_MEDIA_STALE、原生仍preparing且无complete回执。marker明确frozen-bytes-only、requires_native_current_check、not_business_acceptance；这不是文件系统/数据库跨域原子事务，也不提供只凭磁盘marker认定当前业务完成的保证。软件验收包含此限制，不把旧独立seal后FAIL改为历史PASS。
 
-新增[P1 #18](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)提出商品一致性/受保护产品层。现有上传与计划绑定不等于计划必含当前商品母版及结构职责；本轮仅定位接口差距，未实现新规则、未测试保护层或真实模型保真，不属于本页软件PASS范围。真实商品/独立视觉、物理毫米、Agent行为和阶段成本收益仍未测。
+上述是eb55a962已交付基线的范围；后续[P1 #18](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)的原生实现、最终83项运行PASS、类型待验及独立运行状态单列在页首。旧80项和独立PASS不覆盖新字节，也不证明真实产品层视觉保真。
 
 ## 原失败、预算修正及隔离边界
 

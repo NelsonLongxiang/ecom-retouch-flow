@@ -65,7 +65,7 @@ HTTPS 是默认。测试的 allow_loopback_http 只开放明确本机地址。�
 
 该兼容仅接受 RFC1918 IPv4 或 ULA IPv6 字面地址；不接受公共 HTTP 或未经解析约束的域名，不伪装 localhost、不代理、不关闭证书验证。HTTP 会明文传输所选素材与认证信息，使用者须明确接受当前服务的传输条件。实际调用仍要冻结 profile/version/hash/endpoint、取得适用费用与素材外发授权并限定请求次数；此选项不会自动探测或重发。私网配置与受保护来源分别声明 ZIP 所需能力，旧工具不能静默忽略。
 
-在完整 plan submit 文件中添加 `"fallback":{"profile_id":"<原生 executor-profile id>"}`。每步可声明 `references:[{"media_id":"<原生 media id>","purpose":"仅参考木纹"}]`，最多 15 张参考加 1 张编辑目标；规范化 PNG 每张上限 32 MiB。用途进入冻结计划及实际提示词，不把参考商品升级为当前商品事实。
+在完整 plan submit 文件中添加 `"fallback":{"profile_id":"<原生 executor-profile id>"}`。每步可声明 `references:[{"media_id":"<原生 media id>","purpose":"仅参考木纹"}]`，最多 15 张参考加 1 张编辑目标；规范化 PNG 每张上限 32 MiB。用途进入冻结计划及实际提示词，不把参考商品升级为当前商品事实。product-accurate还须按[商品一致性契约](ENGINEERING-CONTRACTS.md#商品一致性与最终产品层)钉本SKU合格母版；每步母版input_role/reference.role为product-structure，结构参考的purpose固定为product-structure，实际有序上传父链与规范化字节核对。结构职责会明确进入提示词，不仅依赖purpose自由文本；protected-layer只生成环境候选，最终本地合成必须另核原生proof，不能因API收到图就放行。
 
 返回的 approval_template.api_fallback 含 profile 身份／版本/hash、endpoint 指纹和 max_requests。取得真实用户同意后填入非空 cost_confirmation 与 upload_confirmation，再 approval grant。可省略 api_fallback，此时仍只允许宿主。max_requests 按每份授权计数、不超过计划步数；它限制请求次数，不能保证提供商实际货币费用。
 

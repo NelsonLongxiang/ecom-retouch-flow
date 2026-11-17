@@ -12,6 +12,7 @@ import { NativeClient } from "./client.ts";
 import { objectBytes, putObject } from "./files.ts";
 import { Images } from "../adapters/images.ts";
 import { fontInfo } from "./fonts.ts";
+import { verifyProductTransform } from "./plugin/product-consistency.mjs";
 export function contextCapabilities(snapshot: any): string[] {
   const artifacts = snapshot.tables.artifacts;
   const has = (predicate: (a: any, m: any, c: any) => boolean) =>
@@ -26,6 +27,15 @@ export function contextCapabilities(snapshot: any): string[] {
     "ygl-native-project/v1",
     "media-sha256",
     "historical-permission-isolation",
+    ...(has(
+      (a, m, c) =>
+        !!c?.product_consistency ||
+        !!c?.product_contract ||
+        c?.operations?.some((op: any) => op.op === "product-composite") ||
+        !!m.product_protection,
+    )
+      ? ["retouch-product-consistency/v1"]
+      : []),
     ...(has(
       (a, m) =>
         m.context_epoch > 0 ||
@@ -233,6 +243,7 @@ export async function inspectProject(file: string) {
           "retouch-suite-output/v1",
           "retouch-output-recovery/v1",
           "retouch-output-contract/v1",
+          "retouch-product-consistency/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",
@@ -326,6 +337,40 @@ export async function inspectProject(file: string) {
         "字体字节与登记family不匹配",
         1,
       );
+  }
+  for (const execution of snapshot.tables.artifacts.filter(
+    (a: any) => JSON.parse(a.meta || "{}").product_protection,
+  )) {
+    const m = JSON.parse(execution.meta),
+      image = snapshot.tables.artifacts.find(
+        (a: any) => a.id === m.product_protection.media_id,
+      );
+    requireThat(
+      image && m.status === "completed" && m.outputs.includes(image.id),
+      "PRODUCT_PROTECTION_REQUIRED",
+      "交换产品层证明未完成或最终媒体缺失",
+    );
+    await verifyProductTransform(
+      "",
+      snapshot.tables.artifacts,
+      execution,
+      image,
+      {
+        historical: true,
+        load: async (a: any) => {
+          const am = JSON.parse(a.meta);
+          const bytes = entries.get(am.object_path);
+          requireThat(
+            bytes &&
+              bytesHash(bytes) === am.sha256 &&
+              bytes.length === am.bytes,
+            "ZIP_MEDIA",
+            "产品层包内来源不完整",
+          );
+          return bytes;
+        },
+      },
+    );
   }
   requireThat(
     [...entries.keys()].every((name) => needed.has(name)),

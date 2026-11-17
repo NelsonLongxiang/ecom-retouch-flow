@@ -103,8 +103,8 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 ## 验证与当前状态
 
-当前软件补丁已通过**开发类型检查、outputs33/33、issues9/9、完整原生80/80**，原检测席又完成同字节**独立全量80/80和一次针对性3/3软件验收PASS**；退出0，无失败/取消/跳过，80份受验输入起止及最终磁盘一致，十类领域证据PASS。原TS2554、API成功路径超短预算和集成总时限取消等失败报告保全，修正未删断言或放宽产品规则。独立竞态探针也保留晚marker限制：最后检查后若再变更，字节marker可能存在，但原生完成拒绝过期上下文，必须核原生当前状态而非仅看文件。PR未合并，未发版部署，真实商品视觉/用户接受另验。详见[验证说明](docs/verification/README.md)。
+已交付基线eb55a962（PR15）的原80项软件验收保留原范围。后续#18候选已完成最终类型检查PASS、开发全量83/83和独立全量83/83 PASS，84份输入稳定、11类领域原件PASS；但独立定向探针2/3、实际multipart证据不足，结论仍为**INCOMPLETE_INDEPENDENT_ACCEPTANCE**，不作软件验收done，也不认定探针失败即产品回归。原失败/unknown部分效果保全。属主另准将该在途候选保全为未合并Draft以交回共享检出；不是合并、部署或实际商品验收。详见[完整验证范围](docs/verification/README.md)。
 
-目录与技能修订随软件补丁按原分支/PR交付，技能0.1.5仍不等于业务行为、泛化或收益已验证。新增[P1 #18商品一致性与受保护产品层](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)只做了接口差距排查，尚未实现/验证，不属于本次80项或独立PASS。宿主目录问题未修，本轮有限日志例外不自动续期；不自动合并、关闭issue或发版。
+[P1 #18商品一致性与受保护产品层](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)的[原生实现候选](docs/ENGINEERING-CONTRACTS.md#商品一致性与最终产品层)沿用invariant spec/plan/transform，钉合格母版、每步结构参考、有限产品层配方与最终编码重建；Skill0.1.6仍为候选。当前仅Draft保全、未合并未部署，禁止将其不完整独立结论当作正式业务准入。受限登记纠错另从已交付基线独立分支开发，不混入本候选；宿主问题/真实视觉/毫米/收益不由软件运行PASS证明。
 
 MIT License。原浏览器插件冻结于本地 `archive/`，归档、业务运行状态、凭证与机器验证记录不参与 Git 跟踪。

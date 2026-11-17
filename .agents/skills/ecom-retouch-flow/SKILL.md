@@ -2,7 +2,7 @@
 name: ecom-retouch-flow
 description: 用于电商商品图精修、物理参数到结构解释与可视参考、整套购买决策策划与分镜、返图语义复核、已有图片接手、连续修图、图库/长图输出，以及原生项目 ZIP 交接和标签评分复用。基于 ygl-trees 原生 CLI；不用于普通翻译、泛电商问答或源码 issues 实现。
 metadata:
-  version: "0.1.5"
+  version: "0.1.6"
   status: "candidate"
   product-contract: "0.4.0-native"
 ---

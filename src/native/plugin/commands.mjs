@@ -5,6 +5,12 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { apiProfile, apiPrompt } from "./api-contract.mjs";
 import { rawRating, effectiveRating } from "./feedback.mjs";
+import {
+  productPlan,
+  assertProductRequest,
+  productConsistency,
+  verifyProductPixels,
+} from "./product-consistency.mjs";
 import { productFacts, factCheck, renderFacts } from "./product-facts.mjs";
 import {
   taskBinding,
@@ -1302,7 +1308,15 @@ export async function run(env, action, rest, args) {
           }
           out = { task: await updateTask(mgr, a, meta, b.expected_revision) };
         } else {
-          out = await workflow({ mgr, api, p, node, b, action });
+          out = await workflow({
+            mgr,
+            api,
+            p,
+            node,
+            b,
+            action,
+            workspaceRoot: path.dirname(path.dirname(env.db.path)),
+          });
         }
       }
       if (!readOnly)
@@ -1418,7 +1432,104 @@ async function updateExecution(mgr, a, meta, expected) {
   ]);
   return { ...a, meta: stable(meta) };
 }
-async function workflow({ mgr, api, p, node, b, action }) {
+async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
+  // Rebuild actual final product bytes before any acceptance/delivery transition.
+  const finalActions = [
+    "media-review",
+    "delivery-prepare",
+    "delivery-complete",
+    "run-review",
+    "run-accept",
+    "run-deliver",
+    "run-delivered",
+    "task-close",
+  ];
+  if (
+    finalActions.includes(action) &&
+    !(["media-review", "run-review"].includes(action) && b.verdict !== "PASS")
+  ) {
+    const all = await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+      [p.id],
+    );
+    const images = [];
+    if (["media-review", "delivery-prepare"].includes(action))
+      images.push(all.find((a) => a.id === b.id && a.kind === "media"));
+    else if (action === "delivery-complete") {
+      const d = all.find((a) => a.id === b.id && a.kind === "delivery");
+      if (d) images.push(all.find((a) => a.id === json(d.meta).media_id));
+    } else if (action === "task-close") {
+      const t = all.find((a) => a.id === b.task && a.kind === "task");
+      if (t)
+        for (const d of currentImageDeliveries(t, all))
+          images.push(
+            all.find(
+              (a) =>
+                a.id === (json(d.meta).accepted_id ?? json(d.meta).media_id),
+            ),
+          );
+    } else {
+      const run = all.find((a) => a.id === b.id && a.kind === "execution");
+      if (run) {
+        const m = json(run.meta);
+        images.push(
+          all.find(
+            (a) =>
+              a.id ===
+              (action === "run-review"
+                ? m.candidate
+                : (m.accepted_id ?? m.outputs?.at(-1))),
+          ),
+        );
+      }
+    }
+    for (const image of images.filter(Boolean)) {
+      const t = all.find(
+        (a) => a.id === json(image.meta).task_id && a.kind === "task",
+      );
+      if (t) {
+        await verifyProductPixels(workspaceRoot, all, image, t);
+        assertInvariants(all, image, t);
+        if (["delivery-complete", "run-delivered"].includes(action)) {
+          const current = (await currentTask(mgr, p, t.id)).a;
+          check(
+            mediaApplicable(image, current, all, digest),
+            "MEDIA_STALE",
+            "交付完成前图片当前适用性已变化",
+            1,
+          );
+          check(
+            all.some((r) => acceptedReview(r, image, current, all, digest)),
+            "ACCEPTANCE",
+            "交付完成前须仍有当前用户接受",
+            1,
+          );
+          await noUnknown(mgr, p, t.id);
+          if (action === "delivery-complete") {
+            const delivery = all.find(
+              (a) => a.id === b.id && a.kind === "delivery",
+            );
+            check(
+              deliveryBindingCurrent(delivery, image, current, digest),
+              "MEDIA_STALE",
+              "交付准备绑定已过期",
+              1,
+            );
+          } else {
+            const run = all.find(
+              (a) => a.id === b.id && a.kind === "execution",
+            );
+            check(
+              json(current.meta).retouch.plan_id === json(run.meta).plan_id,
+              "PLAN_STALE",
+              "交付完成前运行计划已变化",
+              1,
+            );
+          }
+        }
+      }
+    }
+  }
   if (flowActions.includes(action))
     return flowCommand(action, b, {
       mgr,
@@ -1433,6 +1544,7 @@ async function workflow({ mgr, api, p, node, b, action }) {
       updateTask,
       noUnknown,
       invalidateDocumentTasks,
+      workspaceRoot,
     });
   if (action === "executor-observe") {
     check(
@@ -2196,6 +2308,13 @@ async function workflow({ mgr, api, p, node, b, action }) {
     );
     const purpose = b.purpose ?? meta.retouch.purpose ?? "unspecified";
     check(
+      meta.retouch.purpose !== "product-accurate" ||
+        purpose === "product-accurate",
+      "PRODUCT_PURPOSE_DOWNGRADE",
+      "实物准确任务不能通过plan静默降为概念图；用户改变范围时另建明确任务，不抹掉原必检",
+      1,
+    );
+    check(
       !facts || purpose !== "unspecified",
       "TASK_PURPOSE",
       "已有商品事实清单时须明确概念提案或实物准确图用途",
@@ -2236,9 +2355,20 @@ async function workflow({ mgr, api, p, node, b, action }) {
       b.stage,
       a.id,
     );
+    const productContract = productPlan(
+      await mgr.query(
+        "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+        [p.id],
+      ),
+      steps,
+      purpose,
+      a.id,
+      input.id,
+    );
     const body = {
       schema: SCHEMA,
       role: "workflow-plan",
+      product_contract: productContract,
       contracts,
       purpose,
       facts_id: facts?.id ?? null,
@@ -2579,8 +2709,19 @@ async function workflow({ mgr, api, p, node, b, action }) {
       for (const ref of step.references ?? [])
         references.push({
           purpose: ref.purpose,
+          ...(ref.role ? { role: ref.role } : {}),
           artifact: await media(mgr, p, ref.media_id),
         });
+      assertProductRequest(
+        plan,
+        step,
+        input,
+        references,
+        await mgr.query(
+          "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+          [p.id],
+        ),
+      );
       if (action === "run-api-dispatch") {
         const terms = granted.api_fallback,
           fallback = plan.fallback;
@@ -2802,11 +2943,13 @@ async function workflow({ mgr, api, p, node, b, action }) {
           purpose: plan.purpose ?? "unspecified",
           fact_check: plan.fact_check ?? null,
           facts_id: plan.facts_id ?? null,
+          product_contract: plan.product_contract ?? null,
           input: { id: input.id, ...json(input.meta) },
           references: references.map((r) => ({
             id: r.artifact.id,
             purpose: r.purpose,
             ...json(r.artifact.meta),
+            ...(r.role ? { reference_role: r.role } : {}),
           })),
           requirements: plan.requirements,
           preserve: json((await artifact(mgr, plan.goal_id, p, "spec")).content)
@@ -2924,15 +3067,39 @@ async function workflow({ mgr, api, p, node, b, action }) {
         const processed = await media(mgr, p, b.processed_output);
         check(
           json(processed.meta).parents.includes(b.raw_output) &&
-            om.parents.includes(processed.id),
+            (output.id === processed.id || om.parents.includes(processed.id)),
           "POSTPROCESS_BINDING",
           "后处理与候选必须保留原始结果的完整派生",
         );
+        meta.processed_output = processed.id;
       }
+      const lineage = await mgr.query(
+        "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
+        [p.id],
+      );
+      const seen = new Set();
+      const descends = (image, id) => {
+        if (!image || seen.has(image.id)) return false;
+        seen.add(image.id);
+        return (json(image.meta).parents ?? []).some(
+          (parent) =>
+            parent === id ||
+            descends(
+              lineage.find((a) => a.id === parent && a.kind === "media"),
+              id,
+            ),
+        );
+      };
       check(
-        om.task_id === meta.task_id && om.parents.includes(meta.input_id),
+        om.task_id === meta.task_id && descends(output, meta.input_id),
         "OUTPUT_BINDING",
         "输出须绑定当前步骤输入及任务",
+      );
+      await verifyProductPixels(
+        workspaceRoot,
+        lineage,
+        output,
+        (await currentTask(mgr, p, meta.task_id)).a,
       );
       meta.status = "waiting_for_review";
       meta.candidate = output.id;
@@ -3460,6 +3627,29 @@ export function validateSnapshot(s) {
     }
     if (a.kind === "spec" && m.role === "workflow-plan") {
       const body = json(a.content);
+      if (body.product_contract) {
+        const frozen = body.product_contract;
+        const contract = t.artifacts.find(
+          (x) =>
+            x.id === frozen.contract_id &&
+            json(x.meta).role === "product-invariants",
+        );
+        check(
+          contract &&
+            contract.version === frozen.version &&
+            digest(contract.content) === frozen.content_hash &&
+            stable(json(contract.content).product_consistency) ===
+              stable(frozen.consistency),
+          "PRODUCT_CONTRACT_STALE",
+          "交换计划商品一致性版本/hash不完整",
+        );
+        productConsistency(
+          frozen.consistency,
+          json(contract.content).items,
+          t.artifacts,
+          true,
+        );
+      }
       if (body.fallback) {
         const profile = apiRef(body.fallback.profile_id);
         check(
@@ -3688,6 +3878,60 @@ async function restore(mgr, api, b) {
       return v;
     }
     t = remap(t);
+    // Clone preserves product contract identity by rebinding its exact native hashes.
+    for (const a of t.artifacts) {
+      const m = json(a.meta);
+      if (m.role === "product-invariants") {
+        const v = json(a.content);
+        if (v.product_consistency) {
+          const basis = t.artifacts.find(
+            (x) => x.id === v.product_consistency.basis.artifact_id,
+          );
+          v.product_consistency.basis.content_hash = digest(basis.content);
+          a.content = stable(v);
+        }
+      }
+    }
+    for (const a of t.artifacts) {
+      const m = json(a.meta);
+      let value;
+      try {
+        value = json(a.content);
+      } catch {}
+      if (value?.product_contract) {
+        const c = t.artifacts.find(
+          (x) => x.id === value.product_contract.contract_id,
+        );
+        value.product_contract.content_hash = digest(c.content);
+        value.product_contract.consistency = json(
+          c.content,
+        ).product_consistency;
+        for (const step of value.steps ?? [])
+          step.product_contract = structuredClone(value.product_contract);
+        a.content = stable(value);
+      }
+      const rebindProduct = (op) => {
+        if (op?.op === "product-composite") {
+          const c = t.artifacts.find((x) => x.id === op.contract_id);
+          op.contract_hash = digest(c.content);
+        }
+      };
+      if (m.role === "local-postprocess") {
+        const d = json(a.content);
+        d.operations.forEach(rebindProduct);
+        a.content = stable(d);
+      }
+      if (m.transform)
+        for (const step of m.transform.trace ?? [])
+          rebindProduct(step.operation);
+      if (m.product_protection) {
+        const c = t.artifacts.find(
+          (x) => x.id === m.product_protection.contract_id,
+        );
+        m.product_protection.contract_hash = digest(c.content);
+      }
+      a.meta = stable(m);
+    }
     for (const a of t.artifacts) {
       const m = json(a.meta);
       if (m.contract_id) {

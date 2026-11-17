@@ -102,6 +102,12 @@ node src/cli.ts artifact export <确切版本ID> --workspace <业务目录> --pr
 
 导出可读 Markdown 的元数据含 workspace/project/artifact 身份、版本、角色、来源、正文 hash 和导出时间。content_hash 为规范 JSON 字符串 `digest(content)`，与整份 Markdown 的文件 SHA-256 分开。JSON 工件以代码块呈现。导出不产生正式工件，不回写原生内容，不覆盖已有目标；副本目录不强制为 docs。用户展示和接手优先给原生 ID／版本；源码仓库 docs 仍用于产品规范，业务正文中的 v1/v2 标记仅作历史文字。
 
+## 商品一致性与受保护产品层
+
+product-accurate计划必须先以invariant set提交当前SKU的product_consistency；plan submit不接受静默concept降级。完整JSON与有限合成配方见[工程契约](ENGINEERING-CONTRACTS.md#商品一致性与最终产品层)。首步母版作为input时声明input_role:product-structure；否则每步references含该media_id、purpose:product-structure、role:product-structure（结构职责固定，不能另附色彩only等相反用途）。run dispatch的job与实际API上传均按这些冻结参考核对，不因历史登记自动补传。
+
+protected-layer允许不把商品交给模型，但最终用asset transform唯一product-composite按当前contract/recipe、背景/母版/mask/前景真实hash及最终编码确定性重建；PNG/JPEG终稿原生核字节，不自动继承到后续crop/resize。run complete --metadata仍是tool/tool_receipt，可附raw_output_id和processed_output_id指既有原生对象；未实际生成不补造来源。新语义ZIP能力为retouch-product-consistency/v1，缺能力不能静默恢复。
+
 ## 物理参数与可视参考方法
 
 Issue #16的[公共方法及原生接手提纲](PHYSICAL-REFERENCE-WORKFLOW.md#原生接手与执行映射)复用既有facts register、design/spec register与artifact revise；每步参考仍为references中的media_id/purpose，已有host job和API提示词传递其职责。结构/基准/构型、视角及参考冲突在普通design/spec正文中维护，由Agent读取后编入计划；没有新增几何schema或自动冲突判定。method register仍是下方标签分类方法，不能用于几何定义；context cite仍只接design/spec。
