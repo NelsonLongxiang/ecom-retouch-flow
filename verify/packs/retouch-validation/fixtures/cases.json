@@ -1,0 +1,25 @@
+{
+  "schema": "retouch.validation-cases/v1",
+  "positive": {
+    "id": "positive",
+    "required": true,
+    "verdict": "PASS",
+    "observation": "synthetic required item visibly preserved",
+    "expected": "PASS"
+  },
+  "negative": {
+    "id": "negative",
+    "required": true,
+    "verdict": "FAIL",
+    "observation": "synthetic bottom panel remains too thick",
+    "expected": "FAIL"
+  },
+  "unknown": {
+    "id": "unknown",
+    "required": true,
+    "verdict": "UNKNOWN",
+    "observation": "synthetic view insufficient to decide",
+    "expected": "UNKNOWN"
+  },
+  "business_verdict": "NOT_READ_OR_MODIFIED; original bottom-panel FAIL stays business-side"
+}

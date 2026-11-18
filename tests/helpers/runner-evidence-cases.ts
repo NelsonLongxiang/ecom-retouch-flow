@@ -89,6 +89,18 @@ async function snapshotFixture() {
     ["package-lock.json", "{}"],
     ["tsconfig.json", "{}"],
     ["scripts/test.mjs", source],
+    ...[
+      "scripts/lib/native-ygl.mjs",
+      "scripts/lib/native-ygl.d.mts",
+      "scripts/capture-context-design.mjs",
+      "scripts/probe-ygl-wrapper.mjs",
+      "verify/packs/retouch-validation/pack.json",
+      "verify/packs/retouch-validation/material.md",
+      "verify/packs/retouch-validation/candidates.json",
+      "verify/packs/retouch-validation/reviews.json",
+      "verify/packs/retouch-validation/fixtures/cases.json",
+      "verify/packs/retouch-validation/README.md",
+    ].map((file) => [file, "fixture"] as [string, string]),
     ["docs/PHYSICAL-REFERENCE-WORKFLOW.md", "original method"],
   ]);
   const fakeFs = {
@@ -533,5 +545,28 @@ runnerEvidenceCases.push({
       "const command = [",
     );
     assert.doesNotMatch(shortcut, /process[.]exit|already_complete|verdict:/);
+  },
+});
+runnerEvidenceCases.push({
+  name: "runner snapshots: native developer transport and project criteria participate in identity",
+  run: async () => {
+    for (const file of [
+      "scripts/lib/native-ygl.mjs",
+      "verify/packs/retouch-validation/candidates.json",
+    ]) {
+      const fixture = await snapshotFixture(),
+        before = await fixture.read();
+      assert.ok(before.some((x) => x.file === file));
+      fixture.files.set(file, "changed");
+      const final = await fixture.read();
+      assert.deepEqual(
+        final
+          .filter(
+            (x) => before.find((y) => y.file === x.file)?.sha256 !== x.sha256,
+          )
+          .map((x) => x.file),
+        [file],
+      );
+    }
   },
 });

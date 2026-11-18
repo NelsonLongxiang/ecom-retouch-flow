@@ -1,0 +1,35 @@
+[
+  {
+    "source_clause": "S1 每份给定观察必须有明确的必检结果；required项不是PASS时不得接受或交付。",
+    "anchor": {
+      "quote": "S1 每份给定观察必须有明确的必检结果；required项不是PASS时不得接受或交付。",
+      "locator": "material.md#S1"
+    },
+    "checker": {
+      "type": "sql",
+      "predicate": {
+        "from": "observations",
+        "select": [
+          "id",
+          "verdict"
+        ],
+        "where": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "required",
+              "op": "=",
+              "value": 1
+            },
+            {
+              "col": "verdict",
+              "op": "!=",
+              "value": "PASS"
+            }
+          ]
+        }
+      },
+      "fail_when": "rows>0"
+    }
+  }
+]

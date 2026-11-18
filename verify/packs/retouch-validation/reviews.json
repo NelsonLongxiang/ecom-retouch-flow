@@ -1,0 +1,14 @@
+{
+  "schema": "retouch.validation-construction-notes/v1",
+  "status": "AUTHOR_ONLY_NOT_BLIND_REVIEW",
+  "findings": [
+    {
+      "clause": "S1 每份给定观察必须有明确的必检结果；required项不是PASS时不得接受或交付。",
+      "faithful": "exact material quote",
+      "decidable": "closed predicate over given observations",
+      "not_vacuous": "missing observations are not accepted by the native test fixture"
+    }
+  ],
+  "native_prepare": "NOT_RUN_UPSTREAM_TEMP_CLEANUP_CONFLICT",
+  "independent_review": "required on exact final commit SHA"
+}

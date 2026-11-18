@@ -79,6 +79,7 @@ if (processIndex >= 0) {
     await out.close();
     await err.close();
   }
+  process.stdout.write(JSON.stringify({schema:"retouch.validation-supervisor/v1",exit_code:process.exitCode??1,process_directory:directory,exit_receipt:path.join(directory,"exit.json"),stdout:path.join(directory,"stdout.log"),stderr:path.join(directory,"stderr.log")})+"\n");
   process.exit(process.exitCode ?? 1);
 }
 let fullStep = null;
@@ -96,7 +97,9 @@ let engineeringOnly = false,
   outputsOnly = false,
   recoveryOnly = false,
   contractOnly = false,
-  correctionOnly = false;
+  correctionOnly = false,
+  validationOnly = false,
+  immutableOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
     entry = await fs.realpath(args[++index]);
@@ -107,6 +110,7 @@ for (let index = 0; index < args.length; index++) {
   else if (args[index] === "--typecheck") typecheckOnly = true;
   else if (args[index] === "--environment-check") environmentOnly = true;
   else if (args[index] === "--unit-only") unitOnly = true;
+  else if (args[index] === "--immutable-only") immutableOnly = true;
   else if (args[index] === "--legacy") legacy = true;
   else if (args[index] === "--suite" && args[index + 1] === "api") {
     apiOnly = true;
@@ -144,6 +148,9 @@ for (let index = 0; index < args.length; index++) {
   ) {
     correctionOnly = true;
     index++;
+  } else if (args[index] === "--suite" && args[index + 1] === "validation") {
+    validationOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (Number(typecheckOnly) + Number(environmentOnly) > 1)
@@ -158,7 +165,8 @@ if (
     Number(outputsOnly) +
     Number(recoveryOnly) +
     Number(contractOnly) +
-    Number(correctionOnly) >
+    Number(correctionOnly) +
+    Number(validationOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -176,7 +184,8 @@ if (
     outputsOnly ||
     recoveryOnly ||
     contractOnly ||
-    correctionOnly)
+    correctionOnly ||
+    validationOnly)
 )
   throw new Error("--full-step covers the entire native suite, not a subset");
 if (!unitOnly && !typecheckOnly && !environmentOnly && !entry)
@@ -303,30 +312,35 @@ const files = (await fs.readdir(path.join(root, "tests")))
       name.endsWith(".test.ts") &&
       (legacy
         ? !name.startsWith("native-")
-        : correctionOnly
+        : validationOnly
           ? [
-              "native-issues-received-correction.test.ts",
+              "native-validation.test.ts",
               "native-runner-unit.test.ts",
             ].includes(name)
-          : apiOnly
-            ? name.startsWith("native-api")
-            : documentsOnly
-              ? name.startsWith("native-documents")
-              : issuesOnly
-                ? name.startsWith("native-issues")
-                : engineeringOnly
-                  ? name.startsWith("native-engineering")
-                  : zipOnly
-                    ? name.startsWith("native-zip")
-                    : contractOnly
-                      ? name === "native-outputs-contract.test.ts"
-                      : recoveryOnly
-                        ? name === "native-outputs-recovery.test.ts"
-                        : outputsOnly
-                          ? name.startsWith("native-outputs") ||
-                            name === "native-output-cache-unit.test.ts" ||
-                            name === "native-issues-workflow.test.ts"
-                          : name.startsWith("native-")),
+          : correctionOnly
+            ? [
+                "native-issues-received-correction.test.ts",
+                "native-runner-unit.test.ts",
+              ].includes(name)
+            : apiOnly
+              ? name.startsWith("native-api")
+              : documentsOnly
+                ? name.startsWith("native-documents")
+                : issuesOnly
+                  ? name.startsWith("native-issues")
+                  : engineeringOnly
+                    ? name.startsWith("native-engineering")
+                    : zipOnly
+                      ? name.startsWith("native-zip")
+                      : contractOnly
+                        ? name === "native-outputs-contract.test.ts"
+                        : recoveryOnly
+                          ? name === "native-outputs-recovery.test.ts"
+                          : outputsOnly
+                            ? name.startsWith("native-outputs") ||
+                              name === "native-output-cache-unit.test.ts" ||
+                              name === "native-issues-workflow.test.ts"
+                            : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -678,6 +692,13 @@ const correctionEvidence =
         )
         .then(JSON.parse)
         .catch(() => null);
+const validationEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(path.join(runRoot, "native-validation-evidence.json"), "utf8")
+        .then(JSON.parse)
+        .catch(() => null);
 let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -689,38 +710,45 @@ let passed =
       (legacy
         ? nativeEvidence?.verdict === "PASS" &&
           contextEvidence?.verdict === "PASS"
-        : correctionOnly
-          ? correctionEvidence?.verdict === "PASS"
-          : apiOnly
-            ? apiEvidence?.verdict === "PASS"
-            : documentsOnly
-              ? documentsEvidence?.verdict === "PASS"
-              : issuesOnly
-                ? issuesEvidence?.verdict === "PASS"
-                : contractOnly
-                  ? contractEvidence?.verdict === "PASS"
-                  : recoveryOnly
-                    ? recoveryEvidence?.verdict === "PASS"
-                    : outputsOnly
-                      ? outputEvidence?.verdict === "PASS" &&
-                        outputLargeEvidence?.verdict === "PASS" &&
-                        recoveryEvidence?.verdict === "PASS" &&
-                        contractEvidence?.verdict === "PASS"
-                      : zipOnly
-                        ? zipEvidence?.verdict === "PASS"
-                        : engineeringOnly
-                          ? engineeringEvidence?.verdict === "PASS"
-                          : wrapperEvidence?.verdict === "PASS" &&
-                            apiEvidence?.verdict === "PASS" &&
-                            documentsEvidence?.verdict === "PASS" &&
-                            issuesEvidence?.verdict === "PASS" &&
-                            engineeringEvidence?.verdict === "PASS" &&
-                            zipEvidence?.verdict === "PASS" &&
-                            outputEvidence?.verdict === "PASS" &&
-                            outputLargeEvidence?.verdict === "PASS" &&
-                            recoveryEvidence?.verdict === "PASS" &&
-                            contractEvidence?.verdict === "PASS" &&
-                            correctionEvidence?.verdict === "PASS")));
+        : validationOnly
+          ? validationEvidence?.verdict === "PASS" &&
+            validationEvidence?.software_positive?.actual === "PASS" &&
+            validationEvidence?.intended_business_negative?.actual === "FAIL" &&
+            validationEvidence?.unknown_control?.actual === "UNKNOWN" &&
+            validationEvidence?.project_self_check?.status === "PASS"
+          : correctionOnly
+            ? correctionEvidence?.verdict === "PASS"
+            : apiOnly
+              ? apiEvidence?.verdict === "PASS"
+              : documentsOnly
+                ? documentsEvidence?.verdict === "PASS"
+                : issuesOnly
+                  ? issuesEvidence?.verdict === "PASS"
+                  : contractOnly
+                    ? contractEvidence?.verdict === "PASS"
+                    : recoveryOnly
+                      ? recoveryEvidence?.verdict === "PASS"
+                      : outputsOnly
+                        ? outputEvidence?.verdict === "PASS" &&
+                          outputLargeEvidence?.verdict === "PASS" &&
+                          recoveryEvidence?.verdict === "PASS" &&
+                          contractEvidence?.verdict === "PASS"
+                        : zipOnly
+                          ? zipEvidence?.verdict === "PASS"
+                          : engineeringOnly
+                            ? engineeringEvidence?.verdict === "PASS"
+                            : wrapperEvidence?.verdict === "PASS" &&
+                              apiEvidence?.verdict === "PASS" &&
+                              documentsEvidence?.verdict === "PASS" &&
+                              issuesEvidence?.verdict === "PASS" &&
+                              engineeringEvidence?.verdict === "PASS" &&
+                              zipEvidence?.verdict === "PASS" &&
+                              outputEvidence?.verdict === "PASS" &&
+                              outputLargeEvidence?.verdict === "PASS" &&
+                              recoveryEvidence?.verdict === "PASS" &&
+                              contractEvidence?.verdict === "PASS" &&
+                              correctionEvidence?.verdict === "PASS" &&
+                              validationEvidence?.verdict === "PASS")));
 function parseTapCounts(stdout) {
   const counts = {};
   for (const name of [
@@ -856,6 +884,16 @@ async function collectSnapshots() {
     "package-lock.json",
     "tsconfig.json",
     "scripts/test.mjs",
+    "scripts/lib/native-ygl.mjs",
+    "scripts/lib/native-ygl.d.mts",
+    "scripts/capture-context-design.mjs",
+    "scripts/probe-ygl-wrapper.mjs",
+    "verify/packs/retouch-validation/pack.json",
+    "verify/packs/retouch-validation/material.md",
+    "verify/packs/retouch-validation/candidates.json",
+    "verify/packs/retouch-validation/reviews.json",
+    "verify/packs/retouch-validation/fixtures/cases.json",
+    "verify/packs/retouch-validation/README.md",
     // The native physical-reference regression reads this exact method body.
     "docs/PHYSICAL-REFERENCE-WORKFLOW.md",
   ])
@@ -889,25 +927,28 @@ const report = {
   architecture: legacy
     ? "HISTORICAL_LEDGER_FIXTURES_ONLY"
     : "YGL_NATIVE_WRAPPER",
-  test_suite: correctionOnly
-    ? "RECEIVED_OUTPUT_CORRECTION"
-    : apiOnly
-      ? "API_FALLBACK"
-      : documentsOnly
-        ? "NATIVE_DOCUMENTS"
-        : issuesOnly
-          ? "RETROSPECTIVE_ISSUES"
-          : contractOnly
-            ? "OUTPUT_CONTRACT"
-            : recoveryOnly
-              ? "OUTPUT_RECOVERY"
-              : outputsOnly
-                ? "SNAPSHOT_OUTPUTS"
-                : zipOnly
-                  ? "ZIP_SAFETY"
-                  : engineeringOnly
-                    ? "ENGINEERING_CONTRACTS"
-                    : "FULL",
+  test_suite: validationOnly
+    ? "VALIDATION_CONVERGENCE"
+    : correctionOnly
+      ? "RECEIVED_OUTPUT_CORRECTION"
+      : apiOnly
+        ? "API_FALLBACK"
+        : documentsOnly
+          ? "NATIVE_DOCUMENTS"
+          : issuesOnly
+            ? "RETROSPECTIVE_ISSUES"
+            : contractOnly
+              ? "OUTPUT_CONTRACT"
+              : recoveryOnly
+                ? "OUTPUT_RECOVERY"
+                : outputsOnly
+                  ? "SNAPSHOT_OUTPUTS"
+                  : zipOnly
+                    ? "ZIP_SAFETY"
+                    : engineeringOnly
+                      ? "ENGINEERING_CONTRACTS"
+                      : "FULL",
+  native_validation_evidence: validationEvidence,
   native_received_correction_evidence: correctionEvidence,
   native_output_contract_evidence: contractEvidence,
   native_output_recovery_evidence: recoveryEvidence,
@@ -959,34 +1000,43 @@ await fs.writeFile(
   JSON.stringify(report, null, 2) + "\n",
   { flag: "wx" },
 );
-const output = path.join(
+const immutablePath = path.join(
   root,
-  "docs/verification",
-  legacy
-    ? "legacy-tests.json"
-    : correctionOnly
-      ? "received-correction-tests.json"
-      : apiOnly
-        ? "api-tests.json"
-        : documentsOnly
-          ? "documents-tests.json"
-          : issuesOnly
-            ? "issues-tests.json"
-            : contractOnly
-              ? "output-contract-tests.json"
-              : recoveryOnly
-                ? "output-recovery-tests.json"
-                : outputsOnly
-                  ? "outputs-tests.json"
-                  : zipOnly
-                    ? "zip-tests.json"
-                    : engineeringOnly
-                      ? "engineering-tests.json"
-                      : unitOnly
-                        ? "unit-tests.json"
-                        : "native-wrapper-tests.json",
+  "docs/verification/runs",
+  path.basename(runRoot) + ".json",
 );
-await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
+const output =
+  immutableOnly || validationOnly
+    ? immutablePath
+    : path.join(
+        root,
+        "docs/verification",
+        legacy
+          ? "legacy-tests.json"
+          : correctionOnly
+            ? "received-correction-tests.json"
+            : apiOnly
+              ? "api-tests.json"
+              : documentsOnly
+                ? "documents-tests.json"
+                : issuesOnly
+                  ? "issues-tests.json"
+                  : contractOnly
+                    ? "output-contract-tests.json"
+                    : recoveryOnly
+                      ? "output-recovery-tests.json"
+                      : outputsOnly
+                        ? "outputs-tests.json"
+                        : zipOnly
+                          ? "zip-tests.json"
+                          : engineeringOnly
+                            ? "engineering-tests.json"
+                            : unitOnly
+                              ? "unit-tests.json"
+                              : "native-wrapper-tests.json",
+      );
+if (output !== immutablePath)
+  await fs.writeFile(output, JSON.stringify(report, null, 2) + "\n");
 await fs.writeFile(
   path.join(runRoot, "process-result.json"),
   JSON.stringify(

@@ -1,0 +1,47 @@
+{
+  "schema": "retouch.validation-project-pack/v1",
+  "name": "@ecom-retouch-flow/ygl-v-retouch-validation",
+  "version": "1.0.0",
+  "engine": {
+    "name": "ygl-trees",
+    "version": "0.125.0",
+    "provided_by": "explicit installed runtime binding; no copied engine"
+  },
+  "data_only": true,
+  "execution": "scripts/test.mjs --suite validation --ygl-entry <installed entry>",
+  "files": [
+    {
+      "path": "material.md",
+      "bytes": 439,
+      "sha256": "91277f32f1f9f05e007e5e4df250a8e7ad1daf3f8c0633a1c44740fb83afc2cc"
+    },
+    {
+      "path": "candidates.json",
+      "bytes": 836,
+      "sha256": "b73d57c7a16e85f237ba9b7223c0e987da8f4bcd3e3307af443be5972f2120d2"
+    },
+    {
+      "path": "reviews.json",
+      "bytes": 575,
+      "sha256": "bc628b8cb367c752bcfeff8b5855f9d99ff2518b98593eb99dce75696ff67d7d"
+    },
+    {
+      "path": "fixtures/cases.json",
+      "bytes": 664,
+      "sha256": "1c6b524aa2514d11471f0e3947f816f345abcfe617c2c6d49f4c57404fbbe839"
+    }
+  ],
+  "upstream_freeze_and_run": "NOT_RUN_NO_DELETE_CONSTRAINT; manifest is project-local, not a falsely frozen ygl-verifier-pack",
+  "scope": [
+    "linked CLI entry/import behavior",
+    "complete process logs and fail-closed receipt interpretation",
+    "native required observation PASS/FAIL/UNKNOWN and acceptance refusal",
+    "project package/reference/request preservation self-check"
+  ],
+  "not_covered": [
+    "upstream full corpus self-check",
+    "real image visual judgment",
+    "business DB/CAS mutation",
+    "model/network calls"
+  ]
+}

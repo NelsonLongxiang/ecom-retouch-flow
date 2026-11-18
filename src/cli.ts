@@ -1143,8 +1143,12 @@ export async function main(args: string[]) {
     process.exitCode = e.exitCode;
   }
 }
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-)
-  await main(process.argv.slice(2));
+// Node resolves module URLs through directory links, while argv retains the caller path.
+// Compare canonical identities; importing this module must never execute the CLI.
+if (process.argv[1]) {
+  const invoked = await fs
+    .realpath(path.resolve(process.argv[1]))
+    .catch(() => null);
+  const moduleFile = await fs.realpath(fileURLToPath(import.meta.url));
+  if (invoked === moduleFile) await main(process.argv.slice(2));
+}
