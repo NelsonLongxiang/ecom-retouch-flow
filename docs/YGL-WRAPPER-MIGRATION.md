@@ -28,7 +28,7 @@ Issue #1 和 #2 按新架构重开复验。原始 Issue 中独立 SQLite 为权�
 node scripts/probe-ygl-wrapper.mjs --ygl-entry <已安装的-ygl/dist/bundle/bin.cjs>
 ```
 
-脚本只在项目 tmp 中创建独立 ygl home，调用原生 CLI；不创建 retouch 的 ledger.sqlite，不访问默认业务库，不发出图像请求或独立付费 API 请求。详细 JSON 证据留在本地 `docs/verification/ygl-wrapper-probe.json` 和对应 tmp 运行目录，含实际退出码、解析结果、发行包身份及断言，不参与 Git。
+脚本只在项目 tmp 中创建独立 ygl home，调用原生 CLI；不创建 retouch 的 ledger.sqlite，不访问默认业务库，不发出图像请求或独立付费 API 请求。历史 JSON 证据保留在本地旧固定索引；新执行将唯一原件写入 `docs/verification/runs/ygl-wrapper-probe-<唯一ID>.json` 和对应 tmp 运行目录，含实际退出码、解析结果、发行包身份及断言，不参与 Git。设计capture必须显式传 `--probe-report <本仓不可变probe报告>`，预检通过后才登记原生材料；不隐式读旧索引，也不覆盖历史报告。
 
 本次结论为 **PASS_WITH_GAPS**：已通过原生核心流程的 9 项结构／关系断言，同时明确保留未满足的契约。
 

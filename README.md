@@ -13,7 +13,8 @@
 | 根声明文件 | 仅 [README](README.md)、[AGENTS](AGENTS.md)、[SKILL](SKILL.md)、[LICENSE](LICENSE)、[.gitignore](.gitignore)、[.gitattributes](.gitattributes)、[package.json](package.json)、[package-lock.json](package-lock.json)、[tsconfig.json](tsconfig.json)。新增根文件先明确工具要求/维护职责，禁止临时脚本、业务输入和交付散落根目录。 |
 | [src/](src/) | 当前 CLI 与原生封装源码；正式执行 [cli.ts](src/cli.ts)。旧账本相关代码只作明确历史迁移/夹具兼容，不扩成第二业务事实源。冻结验收时禁止改受验字节，先交接写入窗口。 |
 | [tests/](tests/) | 产品原生/历史回归及共享夹具；原生和历史范围分开，测试输出不得写回夹具/归档。独立验收不修改主开发测试来放行。 |
-| [scripts/](scripts/) | 可复用项目工具；正式验证入口为 [test.mjs](scripts/test.mjs)、[demo.mjs](scripts/demo.mjs)。本地设计capture/probe及初始探索工具有原范围，先读说明，不当默认业务命令或公共运行前提；不把任务脚本复制为同义入口。 |
+| [scripts/](scripts/) | 可复用项目工具；正式验证入口为 [test.mjs](scripts/test.mjs)、[demo.mjs](scripts/demo.mjs)，开发原生传输／完整日志复用 [native-ygl](scripts/lib/native-ygl.mjs)。本地设计capture/probe及初始探索工具有原范围，先读说明，不当默认业务命令或公共运行前提；不把任务脚本复制为同义入口。 |
+| [verify/packs/retouch-validation/](verify/packs/retouch-validation/) | 项目级纯数据判据、合成夹具与构造说明；执行仍复用正式运行器与原生保持项门禁，不另建验证器仓或引擎。上游prepare/run/full-corpus因临时清理与无删除约束冲突保持NOT_RUN，不冒称上游冻结包或ALL_CLEAN。 |
 | [docs/](docs/) | 产品开发规范、ADR、公开证据摘要；[CLI](docs/CLI.md)、[宿主协议](docs/HOST-EXECUTOR.md)、[路线图](docs/ROADMAP.md)维护各自事实。[技能演化](docs/SKILL-EVOLUTION.md)记录本次技能候选，不是业务design。 |
 | [docs/verification/](docs/verification/) | 项目可重复验证的说明、最新本机JSON索引及不可变runs；[验证说明](docs/verification/README.md)为公开入口，本机JSON依既有规则不跟踪。不得覆盖旧失败/独立报告冒充成功。 |
 | [docs/demo/](docs/demo/) / [docs/issues/](docs/issues/) | 明确的演示样例、产品问题提报与开发沿革；[Issue索引](docs/issues/README.md)不代替业务任务和接受，原提报时态保留。 |
@@ -102,6 +103,8 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 旧 0.2.0 账本和 v1 ZIP 仅通过 `legacy inspect/migrate` 只读读取，迁入新建隔离工作区；不自动修改真实用户数据。原生 v2 ZIP 不静默接受旧格式。操作和限制见 [项目上下文](docs/PROJECT-CONTEXT.md)。
 
 ## 验证与当前状态
+
+本轮[验证面收敛](docs/ADR-005-validation-convergence.md)复用本仓正式入口，不新建验证器仓：已修复目录链接启动CLI的exit0空JSON、统一开发原生传输的项目内完整日志，并引入[纯数据项目判据包](verify/packs/retouch-validation/README.md)。开发验证专项16/16、正例PASS／预定规则FAIL／项目自检PASS已留证；同SHA独立复核尚待完成。上游验证器prepare/run/full-corpus与无删除约束冲突保持NOT_RUN，不能以本项目自检替代上游全绿或宣称ALL_CLEAN。原真实业务图像FAIL不改变，详见[验证说明](docs/verification/README.md)。
 
 受限received输出登记纠错已完成**最终类型检查、开发及独立全量86/86、定向13/13 PASS**；21份native测试文件完整覆盖，83份受验输入与最终磁盘一致，11类领域原件吻合，独立结论PASS_SOFTWARE_SCOPE。入口为[受限登记纠错](docs/CLI.md#已received外部输出的受限登记纠错)，只审计更正reference→candidate并保留received、实际hash、旧FAIL/UNKNOWN及独立上下文／接受门禁；不自动改真实业务记录或调用图像服务。项目运行器实测项目内日志与子进程临时目录，不修改全局TEMP或DSH。既有80项与发布marker限制、原失败及unknown现场保留原范围，详见[验证说明](docs/verification/README.md)。PR交付不等于合并、发版或部署，软件PASS也不等于商品视觉／用户接受。
 

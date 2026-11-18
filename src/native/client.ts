@@ -63,11 +63,21 @@ export async function binding(entryFile: string): Promise<YglBinding> {
 export class NativeClient {
   root: string;
   ygl: YglBinding;
-  constructor(root: string, ygl: YglBinding) {
+  retainRequests: boolean;
+  constructor(
+    root: string,
+    ygl: YglBinding,
+    options: { retainRequests?: boolean } = {},
+  ) {
     this.root = root;
     this.ygl = ygl;
+    this.retainRequests = options.retainRequests === true;
   }
-  static async initialize(root: string, entry: string) {
+  static async initialize(
+    root: string,
+    entry: string,
+    options: { retainRequests?: boolean } = {},
+  ) {
     const absolute = path.resolve(root);
     await fs.mkdir(absolute, { recursive: true });
     requireThat(
@@ -79,6 +89,7 @@ export class NativeClient {
     const client = new NativeClient(
       await fs.realpath(absolute),
       await binding(entry),
+      options,
     );
     await fs.mkdir(path.join(client.root, "tmp/native-requests"), {
       recursive: true,
@@ -106,7 +117,7 @@ export class NativeClient {
     );
     return client;
   }
-  static async open(root: string) {
+  static async open(root: string, options: { retainRequests?: boolean } = {}) {
     const canonical = await fs.realpath(path.resolve(root));
     const config = JSON.parse(
       await fs.readFile(path.join(canonical, "workspace.json"), "utf8"),
@@ -131,7 +142,7 @@ export class NativeClient {
       "原生 home 不得指向其他工作区",
       1,
     );
-    const client = new NativeClient(canonical, config.ygl);
+    const client = new NativeClient(canonical, config.ygl, options);
     requireThat(
       (await client.call("workspace-info", {})).id === config.id,
       "WORKSPACE_BINDING",
@@ -257,7 +268,7 @@ export class NativeClient {
       );
       return result.result;
     } finally {
-      await fs.unlink(file);
+      if (!this.retainRequests) await fs.unlink(file);
     }
   }
 }

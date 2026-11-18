@@ -5,11 +5,17 @@ import { NativeClient } from "../../src/native/client.ts";
 import { registerBytes } from "../../src/native/files.ts";
 import { digest } from "../../src/native/plugin/commands.mjs";
 const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
-export async function outputFixture() {
+export async function outputFixture(
+  options: { retainRequests?: boolean } = {},
+) {
   const parent = await fs.mkdtemp(
     path.join(process.env.RETOUCH_TEST_ROOT!, "outputs-"),
   );
-  const c = await NativeClient.initialize(path.join(parent, "home"), entry!);
+  const c = await NativeClient.initialize(
+    path.join(parent, "home"),
+    entry!,
+    options,
+  );
   let serial = 0;
   const call = (a: string, b: any) => c.call(a, b, "outputs-" + ++serial);
   const p = (

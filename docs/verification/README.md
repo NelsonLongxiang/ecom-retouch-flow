@@ -1,6 +1,21 @@
 # 验证与复现
 
-## 当前受限登记纠错的软件验收
+## 验证面收敛候选（本轮，独立复核待完成）
+
+依据[ADR-005](../ADR-005-validation-convergence.md)复用正式运行器、原生客户端与[项目纯数据包](../../verify/packs/retouch-validation/README.md)。目录链接入口的红测为exit0/空stdout，修后canonical/link均输出完整CLI JSON，import保持无执行；日志先写原件再有界解析，超大输出、错误JSON、空输出、timeout、非零和领域FAIL分别记录。新capture显式传不可变probe报告并在原生写入前预检；capture/probe新输出不覆盖旧固定索引，见对应SUPERSEDED导航。
+
+开发专项run-JFQg4s为16/16 PASS、exit0、无fail/cancel/skip/todo，94份输入起止稳定；最终类型检查exit0、完整诊断为空。三层结果分别为：原生给定观察正例PASS、必检panel反例FAIL（有原生review/witness且接受被拒）、UNKNOWN仍未知；项目自检核包hash／原生快照／请求保留／旧FAIL，doctor18项全pass。16项含12个运行器函数/事件回归及4个过程/入口/原生验证用例，不代表16次真实业务视觉审核。首次run-3kKCvG的INSPECTION_CAPABILITY夹具入参错误FAIL原件保留，修复未放宽产品检查能力。 最终报告SHA256为6761d64b90d9b600893626ceda0531446086fb9c68dc7d37ac0af12a3068fe0a；有界AST解析86份执行文件、282条字面导入均在仓内有效且无未声明包依赖，修后三处pack导航链接已复核。声明外与上游未运行项仍不计通过。
+
+本轮**不是完整native86项重跑或上游验证器验收**。安装版ygl0.125.0的prepare/run会清理临时快照，full-corpus自检缺语料且会删除临时用例工作目录；本轮无删除指令下均NOT_RUN。项目包使用明确自有schema和作者构造说明，不冒称上游已冻结spec、独立盲审或已执行实例。全量历史86/86保持下节原身份，同SHA独立复核只在本候选冻结提交上执行。未覆盖部署镜像、全部历史tmp消费者、全局缓存、隐藏几何、真实视觉及收益；结论保留PARTIAL，不报ALL_CLEAN。业务侧原图及底板未减薄FAIL原位保留，源码仓不存其私有字节。
+
+```text
+node scripts/test.mjs --typecheck --run-parent tmp/<task>/runs --process-dir tmp/<task>/typecheck
+node scripts/test.mjs --suite validation --ygl-entry <已安装入口> --run-parent tmp/<task>/runs --process-dir tmp/<task>/validation
+```
+
+validation专项只写唯一不可变报告，不替换旧latest索引。隔离验证使用显式retainRequests，默认业务请求生命周期未改；源资产／原请求／已交付报告不删除不移动。原生引擎仍管理瞬时锁，不将项目受控保全夸大为整个调用链零删除或同OS恶意防护。可控日志与子进程临时目录属于项目任务tmp，不改全局TEMP／DSH／依赖。
+
+## 已交付受限登记纠错的软件验收（历史原范围）
 
 2026-11-18，基于已交付eb55a962的独立纠错分支完成软件限定验收。以下为当前受验源码结果，不继承#18 Draft PR19的不完整独立结论，也不修改旧80项和原失败报告。受限入口及授权格式见[CLI](../CLI.md#已received外部输出的受限登记纠错)。
 
