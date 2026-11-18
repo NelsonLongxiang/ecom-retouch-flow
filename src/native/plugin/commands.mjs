@@ -5,6 +5,13 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { apiProfile, apiPrompt } from "./api-contract.mjs";
 import { rawRating, effectiveRating } from "./feedback.mjs";
+import {
+  correctReceivedOutput,
+  validateCorrectionAudit,
+  validateCorrectionReferences,
+  assertCorrectionWorkspace,
+  assertCorrectionOutputAttachment,
+} from "./received-correction.mjs";
 import { productFacts, factCheck, renderFacts } from "./product-facts.mjs";
 import {
   taskBinding,
@@ -239,6 +246,12 @@ async function append(mgr, p, kind, title, content, meta = {}) {
     updated: "",
     meta: stable(meta),
   };
+  if (kind === "execution" && meta.outputs?.length)
+    assertCorrectionOutputAttachment(
+      a.id,
+      meta.outputs,
+      await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [p.id]),
+    );
   await mgr.query(
     "INSERT INTO artifacts(id,project_id,kind,title,format,content,version,created,updated,meta) VALUES(?,?,?,?,?,?,?,?,?,?)",
     Object.values(a),
@@ -792,6 +805,7 @@ export async function run(env, action, rest, args) {
       "dimensions",
       "workspace-info",
       "restore-preview",
+      "execution-output-check",
       "receipt",
       "search",
       "context",
@@ -842,6 +856,11 @@ export async function run(env, action, rest, args) {
         return mgr.query(
           "SELECT p.* FROM projects p WHERE EXISTS(SELECT 1 FROM artifacts a WHERE a.project_id=p.id AND a.kind='profile') ORDER BY p.name",
         );
+      // Check the live workspace before looking up any historical idempotent receipt.
+      if (
+        ["execution-output-check", "execution-output-correct"].includes(action)
+      )
+        await assertCorrectionWorkspace(b, mgr);
       const intent = digest({ action, body: b });
       if (!readOnly) {
         text(req.request_id, "request_id");
@@ -858,7 +877,17 @@ export async function run(env, action, rest, args) {
             "相同请求键携带不同意图",
             1,
           );
-          return { ...receipt.result, replayed: true };
+          return {
+            ...receipt.result,
+            replayed: true,
+            ...(action === "execution-output-correct"
+              ? {
+                  historical_receipt: true,
+                  correction_execution_allowed: false,
+                  current_authorization_revalidated: false,
+                }
+              : {}),
+          };
         }
       }
       let out;
@@ -1302,7 +1331,15 @@ export async function run(env, action, rest, args) {
           }
           out = { task: await updateTask(mgr, a, meta, b.expected_revision) };
         } else {
-          out = await workflow({ mgr, api, p, node, b, action });
+          out = await workflow({
+            mgr,
+            api,
+            p,
+            node,
+            b,
+            action,
+            workspaceRoot: path.dirname(path.dirname(env.db.path)),
+          });
         }
       }
       if (!readOnly)
@@ -1410,6 +1447,13 @@ async function updateExecution(mgr, a, meta, expected) {
     "执行记录已变化，请刷新",
     1,
   );
+  assertCorrectionOutputAttachment(
+    a.id,
+    meta.outputs,
+    await mgr.query("SELECT * FROM artifacts WHERE project_id=?", [
+      a.project_id,
+    ]),
+  );
   meta.revision = expected + 1;
   await mgr.query("UPDATE artifacts SET meta=?,updated=? WHERE id=?", [
     stable(meta),
@@ -1418,7 +1462,32 @@ async function updateExecution(mgr, a, meta, expected) {
   ]);
   return { ...a, meta: stable(meta) };
 }
-async function workflow({ mgr, api, p, node, b, action }) {
+async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
+  if (["execution-output-check", "execution-output-correct"].includes(action)) {
+    check(
+      b.dry_run === undefined,
+      "OUTPUT_CORRECTION_FIELDS",
+      "使用correction-check只读预检，不允许更正payload注入dry_run",
+    );
+    return correctReceivedOutput(
+      {
+        ...b,
+        ...(action === "execution-output-check" ? { dry_run: true } : {}),
+      },
+      {
+        mgr,
+        p,
+        artifact,
+        task,
+        append,
+        relation,
+        updateExecution,
+        workspaceRoot,
+        stable,
+        digest,
+      },
+    );
+  }
   if (flowActions.includes(action))
     return flowCommand(action, b, {
       mgr,
@@ -3424,6 +3493,10 @@ export function validateSnapshot(s) {
       rawRating(json(a.content).rating_record);
     if (m.role === "product-facts") productFacts(json(a.content), t.artifacts);
     if (m.requested_dimensions) requestedDimensions(m.requested_dimensions);
+    if (m.role === "output-registration-correction")
+      validateCorrectionAudit(a, t.artifacts, digest);
+    if (m.registration_corrections)
+      validateCorrectionReferences(a, t.artifacts, digest);
     if (m.role === "workflow-plan" && json(a.content).facts_id) {
       const plan = json(a.content),
         facts = t.artifacts.find(
@@ -3689,6 +3762,14 @@ async function restore(mgr, api, b) {
     }
     t = remap(t);
     for (const a of t.artifacts) {
+      if (json(a.meta).role === "output-registration-correction") {
+        const v = json(a.content),
+          source = t.artifacts.find((x) => x.id === v.source.artifact_id);
+        v.source.content_hash = digest(source.content);
+        a.content = stable(v);
+      }
+    }
+    for (const a of t.artifacts) {
       const m = json(a.meta);
       if (m.contract_id) {
         const contract = t.artifacts.find((x) => x.id === m.contract_id);
@@ -3817,6 +3898,21 @@ async function restore(mgr, api, b) {
       "原生项目已有进度或同名项目；不覆盖，请显式 clone",
       1,
     );
+  // Imported correction permissions are historical records, not new local execution grants.
+  for (const a of t.artifacts) {
+    if (!["spec", "design"].includes(a.kind)) continue;
+    let permission;
+    try {
+      permission = JSON.parse(a.content);
+    } catch {
+      continue;
+    }
+    if (permission?.schema === "retouch.output-correction-permission/v1") {
+      const m = json(a.meta);
+      m.correction_permission_import_id = a.id;
+      a.meta = stable(m);
+    }
+  }
   for (const table of SNAPSHOT_TABLES) {
     for (const row of t[table]) {
       const keys = Object.keys(row);

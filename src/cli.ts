@@ -389,6 +389,18 @@ const commands: Record<string, Command> = {
     description: "回接真实结果，不重新出图",
     action: "execution-reconcile",
   },
+  "execution correction-check": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "只读预检已received外部输出登记角色，不改事实/审阅/上下文",
+    action: "execution-output-check",
+  },
+  "execution correct-output": {
+    operands: 1,
+    flags: ["project", "file", "expected-revision", "request-id"],
+    description: "受限审计更正reference为candidate，保留received与旧审阅",
+    action: "execution-output-correct",
+  },
   "plan submit": {
     operands: 1,
     flags: ["project", "file", "expected-revision", "request-id"],

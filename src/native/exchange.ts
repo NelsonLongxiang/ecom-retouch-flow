@@ -28,6 +28,13 @@ export function contextCapabilities(snapshot: any): string[] {
     "historical-permission-isolation",
     ...(has(
       (a, m) =>
+        m.role === "output-registration-correction" ||
+        !!m.registration_corrections,
+    )
+      ? ["retouch-output-registration-correction/v1"]
+      : []),
+    ...(has(
+      (a, m) =>
         m.context_epoch > 0 ||
         m.retouch?.context_epoch > 0 ||
         m.role === "result-revalidation",
@@ -233,6 +240,7 @@ export async function inspectProject(file: string) {
           "retouch-suite-output/v1",
           "retouch-output-recovery/v1",
           "retouch-output-contract/v1",
+          "retouch-output-registration-correction/v1",
         ].includes(r),
       ),
     "ZIP_VERSION",
