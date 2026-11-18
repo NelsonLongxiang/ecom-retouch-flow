@@ -23,6 +23,10 @@
 
 两阶段文件检查用于发现可观察的路径变化，不作为抵御同 OS 身份恶意写入的独立沙箱。记录放弃不删除已存在文件，也不自动处置真实业务中的历史 preparing。
 
+## received输出角色误登记恢复
+
+外部真实结果若误标reference，pending保护可能与needs_review互锁。现在的[受限登记纠错](CLI.md#已received外部输出的受限登记纠错)是显式原生审计入口，先只读预检，再在当前workspace确认下校验execution revision、原role、原output/hash及可靠授权源；只更reference→candidate及审计引用，不改received/原outputs/CAS/旧FAIL/UNKNOWN，不自动context-review/接受/交付/渲染。命令实际集成与独立验收未完成前不对业务声称可放行。既有execution reconcile仍只处理unknown/dispatched，不扩为重写确定执行事实。
+
 ## 请求尺寸与真实图片
 
 `asset dimensions <media-id>` 一次查询实际交付尺寸、模型原生输出、各次请求和派生链。brief.dimension_diagnostics 与新交付 manifest 的 dimension_provenance 使用同一派生算法；交付保存稳定快照，后续状态变化不会改写已有文件。旧 manifest 不补造原来没有记录的请求信息。

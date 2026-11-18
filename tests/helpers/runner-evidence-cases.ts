@@ -36,11 +36,12 @@ async function captureFixture() {
     "entry",
     "legacy",
     "StringDecoder",
+    "childEnv",
     section(
       source,
-      "const child = spawn(process.execPath, command, {",
-      'await fs.writeFile(path.join(runRoot, "tests.tap"), stdout);',
-    ) + "\nreturn {stdout,stderr,exitCode};",
+      "async function captureTests(command, exitFile = null) {",
+      "// End byte-preserving child capture.",
+    ) + "\nreturn await captureTests(command);",
   );
   return async (
     out: Buffer[],
@@ -74,6 +75,7 @@ async function captureFixture() {
       "",
       false,
       StringDecoder,
+      {},
     );
   };
 }
@@ -254,3 +256,282 @@ export const runnerEvidenceCases: { name: string; run: () => Promise<void> }[] =
       },
     },
   ];
+
+runnerEvidenceCases.push({
+  name: "runner full checkpoints: all files count once and failure stays failure",
+  run: async () => {
+    const source = await runnerSource();
+    const summarize = new AsyncFunction(
+      "files",
+      "segments",
+      section(
+        source,
+        "function summarizeFileSegments(files, segments) {",
+        "async function collectSnapshots() {",
+      ) + "\nreturn summarizeFileSegments(files,segments);",
+    );
+    const files = ["tests/a.test.ts", "tests/b.test.ts"],
+      counts = {
+        tests: 1,
+        pass: 1,
+        fail: 0,
+        cancelled: 0,
+        skipped: 0,
+        todo: 0,
+      };
+    const segments = files.map((file, index) => ({
+      index,
+      file,
+      exit_code: 0,
+      counts: { ...counts },
+      source_stability: "PASS",
+    }));
+    const result = await summarize(files, segments);
+    assert.equal(result.coverage, "COMPLETE");
+    assert.equal(result.exit_code, 0);
+    assert.equal(result.counts.tests, 2);
+    assert.equal(result.counts.pass, 2);
+    for (const [selected, parts] of [
+      [files, segments.slice(0, 1)],
+      [files, [segments[0], segments[0]]],
+      [files, [segments[1], segments[0]]],
+      [files, [segments[0], { ...segments[1], source_stability: "FAIL" }]],
+      [
+        files,
+        [segments[0], { ...segments[1], counts: { ...counts, tests: 2 } }],
+      ],
+      [
+        files,
+        [segments[0], { ...segments[1], counts: { ...counts, pass: null } }],
+      ],
+    ])
+      await assert.rejects(summarize(selected, parts));
+    const failed = await summarize(files, [
+      segments[0],
+      { ...segments[1], exit_code: 1, counts: { ...counts, pass: 0, fail: 1 } },
+    ]);
+    assert.equal(failed.exit_code, 1);
+    assert.equal(failed.counts.fail, 1);
+    assert.equal(failed.counts.pass, 1);
+    const unknown = await summarize(files, [
+      segments[0],
+      { ...segments[1], exit_code: null },
+    ]);
+    assert.equal(unknown.exit_code, 1);
+  },
+});
+runnerEvidenceCases.push({
+  name: "runner supervisor: immediate close or spawn error is retained before async launch logging",
+  run: async () => {
+    const source = await runnerSource();
+    const from = source.indexOf("    const completion = new Promise"),
+      to = source.indexOf("    await fs.writeFile(", from);
+    assert.ok(from >= 0 && to > from);
+    const capture = new AsyncFunction(
+      "child",
+      source.slice(from, to) +
+        "\nawait Promise.resolve();await Promise.resolve();return await completion;",
+    );
+    for (const failure of [false, true]) {
+      const child = new EventEmitter();
+      const result = capture(child);
+      queueMicrotask(() =>
+        failure
+          ? child.emit("error", new Error("synthetic start failure"))
+          : child.emit("close", 3, null),
+      );
+      const value = await result;
+      if (failure) {
+        assert.equal(value.exit_code, null);
+        assert.match(value.start_error, /synthetic start failure/);
+      } else assert.deepEqual(value, { exit_code: 3, signal: null });
+    }
+  },
+});
+
+runnerEvidenceCases.push({
+  name: "runner full checkpoints: raw TAP and actual child exit must agree with metadata",
+  run: async () => {
+    const source = await runnerSource();
+    const verify = new AsyncFunction(
+      "crypto",
+      "part",
+      "tap",
+      "stderr",
+      "observed",
+      section(
+        source,
+        "function parseTapCounts(stdout) {",
+        "function summarizeFileSegments(files, segments) {",
+      ) + "\nreturn verifySegmentEvidence(part,tap,stderr,observed);",
+    );
+    const raw = (pass: number, fail: number, todo = 0) =>
+      Buffer.from(
+        "TAP version 13\n# tests 1\n# pass " +
+          pass +
+          "\n# fail " +
+          fail +
+          "\n# cancelled 0\n# skipped 0\n# todo " +
+          todo +
+          "\n",
+      );
+    const tap = raw(1, 0),
+      err = Buffer.alloc(0),
+      hash = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
+    const part = {
+      file: "tests/a.test.ts",
+      exit_code: 0,
+      counts: { tests: 1, pass: 1, fail: 0, cancelled: 0, skipped: 0, todo: 0 },
+      tap_sha256: hash(tap),
+      stderr_sha256: hash(err),
+    };
+    const observed = {
+      exit_code: 0,
+      signal: null,
+      command: ["--test", part.file],
+    };
+    assert.equal(await verify(crypto, part, tap, err, observed), true);
+    const failedTap = raw(0, 1);
+    await assert.rejects(
+      verify(
+        crypto,
+        { ...part, tap_sha256: hash(failedTap) },
+        failedTap,
+        err,
+        observed,
+      ),
+    );
+    for (const exit of [
+      { ...observed, exit_code: 1 },
+      { ...observed, signal: "SIGTERM" },
+      { ...observed, command: ["--test", "tests/b.test.ts"] },
+    ])
+      await assert.rejects(verify(crypto, part, tap, err, exit));
+    const summarize = new AsyncFunction(
+      "files",
+      "segments",
+      section(
+        source,
+        "function summarizeFileSegments(files, segments) {",
+        "async function collectSnapshots() {",
+      ) + "\nreturn summarizeFileSegments(files,segments);",
+    );
+    const item = {
+      index: 0,
+      file: part.file,
+      source_stability: "PASS",
+      exit_code: 0,
+      counts: part.counts,
+    };
+    const todo = await summarize(
+      [part.file],
+      [{ ...item, counts: { ...part.counts, pass: 0, todo: 1 } }],
+    );
+    assert.equal(todo.exit_code, 1);
+    await assert.rejects(
+      summarize(
+        [part.file],
+        [
+          {
+            ...item,
+            counts: {
+              tests: 0,
+              pass: 0,
+              fail: 0,
+              cancelled: 0,
+              skipped: 0,
+              todo: 0,
+            },
+          },
+        ],
+      ),
+    );
+  },
+});
+
+runnerEvidenceCases.push({
+  name: "runner completed cache: recompute original evidence and reject a false PASS summary",
+  run: async () => {
+    const source = await runnerSource();
+    const verify = new AsyncFunction(
+      "cached",
+      "original",
+      "computed",
+      "expectedPath",
+      section(
+        source,
+        "function assertCompletedResult(cached, original, computed, expectedPath) {",
+        "async function collectSnapshots() {",
+      ) +
+        "\nreturn assertCompletedResult(cached,original,computed,expectedPath);",
+    );
+    const computed = {
+      schema: "retouch.implementation-tests/v1",
+      test_suite: "FULL",
+      verdict: "FAIL",
+      observed_exit_code: 1,
+      source_stability: "PASS",
+      counts: { tests: 1, pass: 0, fail: 1, cancelled: 0, skipped: 0, todo: 0 },
+      snapshots: [{ file: "test", sha256: "fixture" }],
+      file_sequence: { coverage: "COMPLETE" },
+      native_received_correction_evidence: { verdict: "PASS" },
+      finished_at: "new",
+      log_scope: { new: true },
+    };
+    const original = {
+        ...computed,
+        finished_at: "old",
+        log_scope: { old: true },
+      },
+      path = "fixture-report";
+    const cached = {
+      schema: "retouch.validation-process/v1",
+      kind: "FULL",
+      verdict: "FAIL",
+      observed_exit_code: 1,
+      source_stability: "PASS",
+      report: path,
+    };
+    assert.equal(await verify(cached, original, computed, path), "FAIL");
+    await assert.rejects(
+      verify(
+        { ...cached, verdict: "PASS", observed_exit_code: 0 },
+        original,
+        computed,
+        path,
+      ),
+    );
+    await assert.rejects(
+      verify(
+        cached,
+        { ...original, counts: { ...computed.counts, pass: 1, fail: 0 } },
+        computed,
+        path,
+      ),
+    );
+    await assert.rejects(
+      verify({ ...cached, report: "foreign-report" }, original, computed, path),
+    );
+    const pass = {
+      ...computed,
+      verdict: "PASS",
+      observed_exit_code: 0,
+      counts: { ...computed.counts, pass: 1, fail: 0 },
+    };
+    assert.equal(
+      await verify(
+        { ...cached, verdict: "PASS", observed_exit_code: 0 },
+        { ...pass, finished_at: "old" },
+        pass,
+        path,
+      ),
+      "PASS",
+    );
+    const shortcut = section(
+      source,
+      "  } else {\n    try {\n      completedResult =",
+      "const command = [",
+    );
+    assert.doesNotMatch(shortcut, /process[.]exit|already_complete|verdict:/);
+  },
+});

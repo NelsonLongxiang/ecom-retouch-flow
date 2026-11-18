@@ -1,6 +1,47 @@
 # 验证与复现
 
-## 当前开发与独立软件验收
+## 当前受限登记纠错的软件验收
+
+2026-11-18，基于已交付eb55a962的独立纠错分支完成软件限定验收。以下为当前受验源码结果，不继承#18 Draft PR19的不完整独立结论，也不修改旧80项和原失败报告。受限入口及授权格式见[CLI](../CLI.md#已received外部输出的受限登记纠错)。
+
+| 门禁 | 本次实际结果 |
+| --- | --- |
+| 最终类型 | 实际编译器exit0，完整stdout/stderr诊断均为空，83份输入起止稳定 |
+| 开发定向 | run-18JSyX，13/13 PASS；原生纠错2项和运行器11项，fail/cancel/skip/todo均0 |
+| 开发完整 | run-full-release-candidate，86/86 PASS、21/21 native文件，所有实际退出0，83输入稳定，11类领域原件一致 |
+| 独立完整 | run-independent-final，86/86 PASS、21/21文件、退出0、83输入起止及最终磁盘相同，11域原件一致 |
+| 独立定向与结论 | run-0m1ubu，13/13 PASS、退出0；独立原件independent-received-e708791d结论PASS_SOFTWARE_SCOPE |
+
+运行时输入清单摘要ae5b227579d0ab28635869ee3bcfd4da37b0e7bfb8104f7fe1fb070fd5b0b691；这是清单hash，不是Git提交。开发完整原件SHA2564b240236e3a797a61c106815d1a411801b7d61419c0e1879d9119e97a48ba139；独立完整SHA25666156899d7484c182ea179ea4e7b7502af61947a196907a2ee0b770000cdbd3c；独立总报告SHA2561dd16f5a0194b0962e92bdc93a26e9ddcb8cd7834e9dcdcb556fea98d74f1cb4。原件、306份保全文件和恢复关系均已核对；机器JSON依既有规则不公开提交。独立类型未另跑，只读亲核开发类型原件。86项包含真实隔离原生集成与确定性函数／事件夹具，不是86次真实业务或视觉审核。
+
+### 修复及拒绝边界
+
+- R1：审计note元数据／正文、execution／media双向归属、当前outputs和连续revision链；重算ZIP指纹后挂错审计、加输出、换主体仍拒绝。
+- R2：可靠原生来源的封闭允许记录精确绑定当前workspace和对象；拒绝否定、矛盾、额外字段、历史导入授权及旧workspace重放。合法本地重放明确为历史、不可执行、不重新授当前授权；角色与编码一致性不证明人工来源绝对真实。
+- R3：纠错前共享输出拒绝，统一execution新增／更新入口也拒绝纠错后被另一record／reconcile挂载；拒绝零业务写入，原项目仍能导出。
+- 更正只改登记role、审计引用和执行revision；received／outputs／hash／CAS、旧FAIL/UNKNOWN与任务context/revision保全。上下文复核、旧结果适用性、视觉检查、用户接受和交付仍各自独立。
+
+### 项目内日志与完整回归复现
+
+所有可控stdio、夹具和子进程TMP/TEMP/TMPDIR，以及每段实际os.tmpdir探针均在项目任务tmp；未改系统TEMP、DSH或依赖。长验证复用正式运行器的固定文件续跑，不建立任务临时包装器。
+
+```text
+node scripts/test.mjs --environment-check --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/environment
+node scripts/test.mjs --typecheck --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/types
+node scripts/test.mjs --suite received-correction --ygl-entry <实际入口> --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/targeted
+node scripts/test.mjs --ygl-entry <实际入口> --run-parent tmp/<任务>/runs --full-step tmp/<任务>/runs/run-<唯一名称> --process-dir tmp/<任务>/part000
+```
+
+full-step每次顺序执行同一固定21文件清单中的下一文件；每次等待真实退出，用不同process-dir保留启动／退出记录，不把IN_PROGRESS当PASS。原TAP计数、字节hash、实际child close退出／signal／command、同源码清单须一致；每part测试数>0，fail/cancel/skip/todo均0才通过。无part的旧launch不自动重放。完成后重读须重算全部part和领域证据，并核不可变报告／缓存一致；开发实跑该路径exit0且原报告不变，独立运行未额外重跑已完成CLI，其正式回归包含相应反例。
+
+### 原结果保留与未授权事项
+
+正式定向早期两次测试断言FAIL、原full80/81的夹具初始化NATIVE_RESULT_UNKNOWN与隔离DB、无退出／无测试证据的detached启动UNKNOWN、旧5/21部分序列，以及修缓存前85/85全量均保留原身份；最终86/86不回填旧报告，不重放未知原请求。后续状态摘要不属于83份受验输入，源码仍保持同一指纹。
+
+本次只授软件限定验收，不授真实业务DB/CAS／角色更正／上下文／旧FAIL/UNKNOWN修改、图像／HD／付费调用、业务接受、合并、发版或部署。实际业务操作者仍须按精确身份与原生门禁单独执行。#18独立INCOMPLETE和其他商品真实视觉／毫米／隐藏结构／收益缺口不由此消除。
+
+## 已交付eb55a962基线的软件验收（历史原范围）
+
 
 2026-11-17，本轮在用户明确批准的有限执行窗口内，以Node24.12.0、已安装的ygl-trees0.125.0及项目正式入口，完成了真实开发门禁。使用隔离原生home、本机HTTP模拟服务与合成图片，不访问默认业务库，不改共享宿主，不调用真实图像或收费API。
 
@@ -19,7 +60,7 @@
 
 针对性一次执行包含after-seal、after-data、after-marker-check三个真实NativeClient/隔离数据库及Sharp/CAS场景。前两者检测到过期后拒绝新marker；最后一次成功check返回后立即改变需求时，marker可能已落盘，但完成命令返回SUITE_MEDIA_STALE、原生仍preparing且无complete回执。marker明确frozen-bytes-only、requires_native_current_check、not_business_acceptance；这不是文件系统/数据库跨域原子事务，也不提供只凭磁盘marker认定当前业务完成的保证。软件验收包含此限制，不把旧独立seal后FAIL改为历史PASS。
 
-新增[P1 #18](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)提出商品一致性/受保护产品层。现有上传与计划绑定不等于计划必含当前商品母版及结构职责；本轮仅定位接口差距，未实现新规则、未测试保护层或真实模型保真，不属于本页软件PASS范围。真实商品/独立视觉、物理毫米、Agent行为和阶段成本收益仍未测。
+原80项报告生成时，[P1 #18](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)仅定位接口差距，不在其验收中。其后在途实现已保存为未合并[Draft PR19](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/19)，独立验收仍INCOMPLETE，与本页当前纠错分支隔离；当前纠错86项PASS不替代商品保护层、真实模型保真或视觉／毫米／收益验收。
 
 ## 原失败、预算修正及隔离边界
 

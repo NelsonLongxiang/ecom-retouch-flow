@@ -77,6 +77,25 @@ run complete 可加 `--metadata <回执.json>`，字段为 `tool` 和去敏后�
 
 已有外部候选用 `artifact review <id>`：文件含 sha256/verdict/observations/reviewer/source，用户接受再加 `accepted:true` 和 `source:user`。`artifact deliver <id> --to <目录> --request-id <key>` 直接交付已接受的真实文件。`task close <id>` 需 revision 与 `{"statement":"完成依据"}`；图像任务核对实际交付，设计任务核对设计工件。
 
+## 已received外部输出的受限登记纠错
+
+仅在真实本地/外部结果已收到、明确误登记为reference且无旧接受/完成交付时使用；不是重新生成、对账失败改状态或用户质量接受。首版仅允许reference→candidate，原execution保持external/received，原outputs/hash/CAS、goal/task绑定、旧FAIL/UNKNOWN、原任务context/revision均不改；只添加审计引用并递增execution revision。更正后仍须task context-review、旧结果适用性复核和真实逐项/用户接受，不能直接交付或启动新模型。
+
+先实际读execution/media/可靠授权spec和workspace身份。授权spec/design的可靠正文须为紧凑JSON对象（禁止重复/额外键），schema=retouch.output-correction-permission/v1、decision=allow，精确绑定workspace_id/project_id/task_id/execution_id/media_id/sha256/from_role=reference/to_role=candidate，confirmation须为下例固定允许文本；请求source.quote与confirmation均引用该固定文本。该结构是实际人工许可的可核对编码，不能由Agent自行把拒绝或未知改成allow。历史导入/clone来源不得自动用作当前许可，新当前确认须原生新版本/新记录并保留原始来源。文件字段：
+
+```json
+{"task":"<原任务ID>","output_id":"<原执行已有输出ID>","sha256":"<实际原图hash>","expected_role":"reference","role":"candidate","workspace_id":"<当前workspace身份>","confirmation":"允许在所列工作区将所列已收到输出的登记角色从reference更正为candidate；保留执行事实及旧审阅，不授予图像接受或交付。","actor":"<实际操作者>","reason":"<误登记原因，不是视觉通过>","source":{"artifact_id":"<可靠本地spec/design>","version":1,"content_hash":"<正文digest>","quote":"允许在所列工作区将所列已收到输出的登记角色从reference更正为candidate；保留执行事实及旧审阅，不授予图像接受或交付。"}}
+```
+
+```text
+node src/cli.ts execution correction-check <execution-id> --workspace <home> --project <project> --file <更正.json> --expected-revision <已读执行revision> --request-id <预检键> --json
+node src/cli.ts execution correct-output <execution-id> --workspace <home> --project <project> --file <相同更正.json> --expected-revision <相同执行revision> --request-id <稳定更正键> --json
+```
+
+correction-check只读CAS/原生事实，返回dry_run，不追加事件/工件/关系或改revision；correct-output由现有原生事务和同键幂等承载，当前workspace同键同正文返回显式historical_receipt且correction_execution_allowed=false的旧回执，不重新确认当前授权；旧workspace在查回执前即拒绝。同键异内容拒REQUEST_CONFLICT，不要换键重复执行。新键旧revision/错hash/错role/跨项目任务目标/不是received/已有接受或交付/无可靠精确来源/错当前workspace均拒绝；不手改DB/CAS、不新建假执行。CAS实际hash与32MiB上限先核；权限确认不改变实际图片质量。审计note记录旧新值、actor/reason/source及当前确认，原登记事件与渲染事实保留。
+
+ZIP声明retouch-output-registration-correction/v1并验证审计绑定，restore/clone保全历史；历史workspace确认不得在新workspace直接重放。此命令随源码候选出现不等于已获准进入业务入口，实际维护线变更身份、完整门禁和独立结论须分别核。
+
 ## 原生文档与导出
 
 方案、目标和来源的正式入口是业务工作区中的原生 design/spec/citation。先读 `project brief <id>` 的 documents，按 artifact_id 调用 show 获取完整正文；documents 展示 design/spec 等系列当前版本，并保留所有 citation 固定快照。`observed-current` 只表示当前版本，不表示设计已确认、商品事实成立或任务完成。citation 的 `pinned-snapshot` 不声明来源仍为最新；同标题 citation 各自独立，history 只读取该精确快照，来源过期与否另由 context build 检查。
