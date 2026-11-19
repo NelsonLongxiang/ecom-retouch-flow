@@ -7,7 +7,11 @@ export function assertPostprocessOutput(
   artifacts: any[],
 ): void;
 
-export function invariants(value: any, artifacts: any[]): any;
+export function invariants(
+  value: any,
+  artifacts: any[],
+  historical?: boolean,
+): any;
 export function inspectionItems(items: any[], definitions: any[]): any[];
 export function invariantView(artifacts: any[], image: any, task: any): any;
 export function assertInvariants(artifacts: any[], image: any, task: any): any;

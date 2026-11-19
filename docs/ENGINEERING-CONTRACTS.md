@@ -86,6 +86,25 @@ plan只检查当前step.fact_keys实际依赖的争议。无关外观任务可�
 
 保持项的文本和适用范围随计划进入宿主任务单和API提示词，原始来源留在本地审计。规范变化使依赖的计划待复核，并重新锁定相关任务节点；旧运行不能绕过新规范继续派发。
 
+## #18 · 当前SKU一致性与受保护产品层
+
+product-accurate任务必须通过保持项中的product_consistency（schema=retouch.product-consistency/v1）绑定当前SKU、master.media_id/sha256、basis.artifact_id/version/content_hash/quote、相容view和qualification；basis须为可靠user-original/confirmed-fact且摘录覆盖SKU、母版hash、视角及合格依据。immutable_ids与must_prove_ids引用当前必检items，allowed_changes列有限kind/conditions。未声明契约不进入实物准确派发，已有任务也不能通过改plan.purpose降为concept绕过。
+
+reference／whole-image路线在每步实际输入或references中包含该确切母版，职责为product-structure；不能仅登记过或只写colour-only。计划、宿主job和API上传准备绑定同一契约版本/hash及角色；软参考不承诺模型硬锁。protected-layer路线可只请求环境，但最终必须以本地product-composite完成产品合成并验证最终字节。
+
+protected-layer还须绑定mask、visible_regions及有限compositions配方（id、canvas_width/height、x/y、等比width/height、明确PNG或JPEG编码，可选前景）。首版只支持平移、等比缩放和显式遮挡；不能用一张平面任意透视伪造三维。所有母版、mask、前景都在asset transform.inputs声明真实ID/hash/role，product-composite是唯一最终操作，并携带contract_id/version/hash及recipe_id。必证区域须可见，来源、renderer及最终输出的确切对象均核对；同字节换ID不继承证明，之后crop/resize/融合或正式套图output_profile也不自动继承。
+
+检查、接受、交付完成、缓存复用及ZIP封包检查均保留对应门：晚到required FAIL拒绝完成且不补写完成回执；重新构造最终PNG/JPEG字节，而非仅信任声明的父链。retouch-product-consistency/v1能力保护完整交换／clone；历史授权不变为新执行权限。普通治理任务交换SNAPSHOT_TASK遗留仍单列，不由本特性扩修。软件绑定检查不能证明母版真实资格、隐藏结构、毫米精度或用户视觉接受。
+
+定向入口：
+
+
+```text
+node scripts/test.mjs --suite product-consistency --ygl-entry <已安装入口> --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/check
+```
+
+该套件包含产品层、原三项边界（真实loopback multipart／晚到FAIL／等字节异对象及renderer漂移）、元数据兼容、received纠错和runner证据回归；原始请求及全部part在断言前独占留证。原独立2/3缺证据报告保留，不追认为PASS；新的开发与同SHA独立复验分别记录，真实服务/视觉/用户接受另验。
+
 ## E05 · 原生本地后处理
 
 `asset transform <task-id> --expected-revision <rev>` 使用显式inputs（id/sha256/role）、input_id和operations。支持extract、mask、repair、composite、annotate、resize。所有输入、操作、坐标、Sharp/libvips版本、字体和实际输出绑定到原生local-postprocess execution及media.transform；多图父链和字体用途通过原生关系保全。

@@ -2,6 +2,12 @@
 import { digest, stable } from "./value.mjs";
 import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
+  productComposite,
+  productProtection,
+  verifyProductTransform,
+  verifyProductPixels,
+} from "./product-consistency.mjs";
+import {
   taskBinding,
   sameBinding,
   mediaApplicable,
@@ -62,6 +68,7 @@ export async function flowCommand(action, b, h) {
     relation,
     updateTask,
     noUnknown,
+    workspaceRoot,
   } = h;
   const all = await mgr.query(
     "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
@@ -339,6 +346,7 @@ export async function flowCommand(action, b, h) {
       "缓存输出必须保留全部图像来源",
     );
     assertPostprocessOutput(ex, image, all);
+    await verifyProductTransform(workspaceRoot, all, ex, image);
     // Read-only: no event, artifact, relation, acceptance or task status is written.
     return { execution: ex, artifact: image };
   }
@@ -367,6 +375,32 @@ export async function flowCommand(action, b, h) {
         "输入须绑定本项目实际素材hash",
       );
       words(input.role, "输入职责");
+    }
+    const productOps = b.descriptor.operations.filter(
+      (op) => op.op === "product-composite",
+    );
+    if (productOps.length) {
+      need(
+        b.descriptor.operations.length === 1,
+        "PRODUCT_COMPOSITE",
+        "产品层合成必须是唯一最终操作",
+      );
+      const base = all.find(
+        (a) => a.id === b.descriptor.input_id && a.kind === "media",
+      );
+      const selected = productComposite(productOps[0], base, all);
+      for (const image of [
+        selected.master,
+        selected.mask,
+        ...(selected.foreground ? [selected.foreground] : []),
+      ])
+        need(
+          b.descriptor.inputs.some(
+            (i) => i.id === image.id && i.sha256 === meta(image).sha256,
+          ),
+          "PRODUCT_COMPOSITE",
+          "产品层实际输入不完整",
+        );
     }
     const cropSources = b.descriptor.operations
       .filter(
@@ -418,6 +452,13 @@ export async function flowCommand(action, b, h) {
       "输出须保留全部图像输入",
     );
     assertPostprocessOutput(ex, image, all);
+    const protection = await verifyProductTransform(
+      workspaceRoot,
+      all,
+      ex,
+      image,
+    );
+    if (protection) m.product_protection = protection;
     m.status = "completed";
     m.outputs = [image.id];
     m.revision++;
@@ -499,6 +540,7 @@ export async function flowCommand(action, b, h) {
       const image = await artifact(mgr, slot.media_id, p, "media"),
         t = await currentTask(mgr, p, slot.binding.task_id);
       assertInvariants(all, image, t.a);
+      await verifyProductPixels(workspaceRoot, all, image, t.a);
       const review = await add(
         "review",
         "Suite acceptance " + a.id + "/" + slot.id,
@@ -563,6 +605,7 @@ export async function flowCommand(action, b, h) {
           t = await currentTask(mgr, p, s.binding.task_id);
         await noUnknown(mgr, p, t.a.id);
         assertInvariants(all, image, t.a);
+        await verifyProductPixels(workspaceRoot, all, image, t.a);
       }
       need(
         ["PASS", "NOT_DECLARED"].includes(coverageView(all).status),
@@ -570,6 +613,16 @@ export async function flowCommand(action, b, h) {
         "正式套图交付前仍有内容覆盖缺口",
       );
     }
+    if (b.mode === "delivery" && b.output_profile)
+      for (const s of slots) {
+        const image = all.find((a) => a.id === s.media_id),
+          owner = all.find((a) => a.id === s.binding.task_id);
+        need(
+          !productProtection(all, image, owner),
+          "PRODUCT_OUTPUT_REVIEW_REQUIRED",
+          "产品层保护不自动继承到图库/JPEG/crop等输出派生；首版仅交付已验证最终文件或预览衍生稿",
+        );
+      }
     const profile = b.output_profile
       ? outputProfile(b.output_profile, slots, all)
       : null;
@@ -748,6 +801,7 @@ export async function flowCommand(action, b, h) {
             t = await currentTask(mgr, p, slot.binding.task_id);
           await noUnknown(mgr, p, t.a.id);
           assertInvariants(all, image, t.a);
+          await verifyProductPixels(workspaceRoot, all, image, t.a);
         }
         need(
           ["PASS", "NOT_DECLARED"].includes(coverageView(all).status),

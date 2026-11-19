@@ -108,6 +108,6 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 受限received输出登记纠错已完成**最终类型检查、开发及独立全量86/86、定向13/13 PASS**；21份native测试文件完整覆盖，83份受验输入与最终磁盘一致，11类领域原件吻合，独立结论PASS_SOFTWARE_SCOPE。入口为[受限登记纠错](docs/CLI.md#已received外部输出的受限登记纠错)，只审计更正reference→candidate并保留received、实际hash、旧FAIL/UNKNOWN及独立上下文／接受门禁；不自动改真实业务记录或调用图像服务。项目运行器实测项目内日志与子进程临时目录，不修改全局TEMP或DSH。既有80项与发布marker限制、原失败及unknown现场保留原范围，详见[验证说明](docs/verification/README.md)。PR交付不等于合并、发版或部署，软件PASS也不等于商品视觉／用户接受。
 
-技能0.1.5仍不等于业务行为、泛化或收益已验证。[P1 #18商品一致性与受保护产品层](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)的在途实现已按属主隔离裁定保全为[Draft PR19](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/19)，独立验收仍INCOMPLETE，未合并、不在本纠错分支。登记纠错按已交付eb55a962独立开发，原失败不改写；真实视觉、隐藏几何、毫米精度、模型服从和成本收益另验，不自动关闭issue或发布。
+技能0.1.5仍不等于业务行为、泛化或收益已验证。[P1 #18商品一致性与受保护产品层](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)的在途实现已按属主隔离裁定保全为[Draft PR19](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/19)，原独立验收仍INCOMPLETE、旧PR保持未合并；当前在PR22基线上前向集成，相关契约见[当前SKU与受保护层](docs/ENGINEERING-CONTRACTS.md#18--当前sku一致性与受保护产品层)，定向入口为 `--suite product-consistency`，开发结果不替代新SHA独立验收。登记纠错按已交付eb55a962独立开发，原失败不改写；真实视觉、隐藏几何、毫米精度、模型服从和成本收益另验，不自动关闭issue或发布。
 
 MIT License。原浏览器插件冻结于本地 `archive/`，归档、业务运行状态、凭证与机器验证记录不参与 Git 跟踪。
