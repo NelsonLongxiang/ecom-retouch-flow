@@ -1,7 +1,26 @@
 // Context review, media applicability and acceptance are separate immutable facts.
-const meta = (a) => (typeof a.meta === "string" ? JSON.parse(a.meta) : a.meta);
+import { metadata } from "./value.mjs";
+const meta = metadata;
 export function taskBinding(task, digest) {
   const r = meta(task).retouch;
+  if (
+    !r ||
+    typeof r !== "object" ||
+    Array.isArray(r) ||
+    r.schema !== "retouch.native/v1" ||
+    !["image", "design"].includes(r.kind) ||
+    typeof r.goal_id !== "string" ||
+    !r.goal_id ||
+    !Number.isSafeInteger(r.goal_version) ||
+    r.goal_version < 1 ||
+    !Array.isArray(r.requirements)
+  )
+    throw Object.assign(
+      new Error(
+        "需要已绑定的修图任务上下文，普通原生任务不能作为接受/交付依据",
+      ),
+      { code: "TASK_PROFILE", rc: 2 },
+    );
   return {
     task_id: task.id,
     goal_id: r.goal_id,
@@ -20,6 +39,7 @@ export function sameBinding(a, b) {
   ].every((k) => (a[k] ?? (k === "context_epoch" ? 0 : null)) === b[k]);
 }
 export function originalMediaContext(image, task, digest) {
+  if (meta(task).retouch === undefined) return false;
   const im = meta(image),
     b = taskBinding(task, digest);
   return (
@@ -32,12 +52,14 @@ export function originalMediaContext(image, task, digest) {
   );
 }
 export function deliveryBindingCurrent(delivery, image, task, digest) {
+  if (meta(task).retouch === undefined) return false;
   const m = meta(delivery);
   return m.goal_id
     ? sameBinding(m, taskBinding(task, digest))
     : originalMediaContext(image, task, digest);
 }
 export function mediaApplicable(image, task, artifacts, digest) {
+  if (meta(task).retouch === undefined) return false;
   const im = meta(image),
     binding = taskBinding(task, digest);
   if (im.task_id !== task.id || image.project_id !== task.project_id)

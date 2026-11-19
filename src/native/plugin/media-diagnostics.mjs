@@ -1,3 +1,4 @@
+import { metadata as artifactMetadata } from "./value.mjs";
 export function requestedDimensions(value) {
   if (value === undefined || value === null) return null;
   if (
@@ -21,9 +22,7 @@ export function requestedDimensions(value) {
   };
 }
 export function dimensionView(artifacts, id) {
-  const metadata = new Map(
-    artifacts.map((a) => [a.id, JSON.parse(a.meta || "{}")]),
-  );
+  const metadata = new Map(artifacts.map((a) => [a.id, artifactMetadata(a)]));
   const meta = (a) => metadata.get(a.id);
   const media = artifacts.filter((a) => a.kind === "media"),
     executions = artifacts.filter((a) => a.kind === "execution");

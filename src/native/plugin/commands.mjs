@@ -20,7 +20,7 @@ import {
   acceptedReview,
   deliveryBindingCurrent,
 } from "./applicability.mjs";
-import { stable, digest } from "./value.mjs";
+import { stable, digest, metadata } from "./value.mjs";
 export { stable, digest } from "./value.mjs";
 import {
   flowBrief,
@@ -273,7 +273,7 @@ export function documentSeries(a, artifacts) {
 export function documentDescriptor(a, artifacts) {
   const versions = documentSeries(a, artifacts),
     current = versions.at(-1),
-    meta = json(a.meta);
+    meta = metadata(a);
   return {
     authority: "native-artifact",
     project_id: a.project_id,
@@ -380,9 +380,7 @@ async function invalidateDocumentTasks(mgr, p, ids, design) {
     for (const t of tasks) {
       if (
         !affected.has(t.id) &&
-        (json(t.meta).retouch?.dependencies ?? []).some((id) =>
-          affected.has(id),
-        )
+        (metadata(t).retouch?.dependencies ?? []).some((id) => affected.has(id))
       ) {
         affected.add(t.id);
         changed = true;
@@ -390,7 +388,7 @@ async function invalidateDocumentTasks(mgr, p, ids, design) {
     }
   } while (changed);
   for (const t of tasks.filter((x) => affected.has(x.id))) {
-    const meta = json(t.meta);
+    const meta = metadata(t);
     if (design && ids.includes(t.id)) meta.retouch.design_id = design.id;
     meta.retouch.context_status = "needs_review";
     if (meta.status === "done") {
@@ -447,11 +445,22 @@ async function updateProfile(mgr, p, node, patch, expected) {
 }
 async function task(mgr, p, id) {
   const a = await artifact(mgr, id, p, "task");
-  return { a, meta: json(a.meta) };
+  const meta = metadata(a);
+  check(
+    meta.retouch &&
+      typeof meta.retouch === "object" &&
+      !Array.isArray(meta.retouch) &&
+      meta.retouch.schema === SCHEMA &&
+      ["image", "design"].includes(meta.retouch.kind),
+    "TASK_PROFILE",
+    "普通原生治理任务不是修图业务任务；不能补造修图上下文",
+    1,
+  );
+  return { a, meta };
 }
 async function updateTask(mgr, a, meta, expected) {
   check(
-    (json(a.meta).retouch?.revision ?? 0) === expected,
+    (metadata(a).retouch?.revision ?? 0) === expected,
     "REVISION_CONFLICT",
     "任务已变化，请先读取当前任务",
     1,
@@ -465,14 +474,14 @@ async function updateTask(mgr, a, meta, expected) {
   return { ...a, meta: stable(meta) };
 }
 export function pendingExecution(a, artifacts) {
-  const m = json(a.meta);
+  const m = metadata(a);
   if (["unknown", "dispatched"].includes(m.status)) return true;
   if (m.status !== "received") return false;
   if (m.role !== "external" || !Array.isArray(m.outputs) || !m.outputs.length)
     return true;
   return !m.outputs.every((id) =>
     artifacts.some((x) => {
-      const im = json(x.meta);
+      const im = metadata(x);
       return (
         x.id === id &&
         x.kind === "media" &&
@@ -486,9 +495,10 @@ export function pendingExecution(a, artifacts) {
   );
 }
 function currentImageDeliveries(t, artifacts) {
-  const tr = json(t.meta).retouch;
+  const tr = metadata(t).retouch;
+  if (!tr) return []; // Ordinary native governance tasks are not retouch delivery subjects.
   return artifacts.filter((x) => {
-    const m = json(x.meta);
+    const m = metadata(x);
     if (m.task_id !== t.id || m.status !== "completed") return false;
     if (x.kind === "execution") {
       const image = artifacts.find((a) => a.id === m.accepted_id);
@@ -505,7 +515,7 @@ function currentImageDeliveries(t, artifacts) {
     }
     if (x.kind !== "delivery") return false;
     const image = artifacts.find((a) => a.id === m.media_id),
-      im = image && json(image.meta);
+      im = image && metadata(image);
     return (
       im &&
       im.task_id === t.id &&
@@ -527,7 +537,7 @@ const currentImageDelivery = (t, artifacts) =>
 function businessHealth(artifacts, tasks) {
   const findings = [];
   for (const a of artifacts) {
-    const m = json(a.meta);
+    const m = metadata(a);
     if (
       a.kind === "execution" &&
       m.status === "received" &&
@@ -571,7 +581,7 @@ function businessHealth(artifacts, tasks) {
       artifacts.some(
         (a) =>
           a.kind === "execution" &&
-          json(a.meta).task_id === t.id &&
+          metadata(a).task_id === t.id &&
           pendingExecution(a, artifacts),
       )
     )
@@ -603,17 +613,35 @@ async function brief(mgr, p) {
   const tasks = artifacts
     .filter((a) => a.kind === "task")
     .map((a) => {
-      const meta = json(a.meta),
-        linked = artifacts.filter((x) => json(x.meta).task_id === a.id),
+      const meta = metadata(a);
+      if (meta.retouch === undefined)
+        return {
+          ...a,
+          meta,
+          progress: "native_task",
+          image_outputs: [],
+          workflow_scope: "native",
+        };
+      check(
+        meta.retouch &&
+          typeof meta.retouch === "object" &&
+          !Array.isArray(meta.retouch) &&
+          meta.retouch.schema === SCHEMA &&
+          ["image", "design"].includes(meta.retouch.kind),
+        "TASK_PROFILE",
+        "修图任务上下文无效，不能按普通治理任务或已接受对象处理",
+        1,
+      );
+      const linked = artifacts.filter((x) => metadata(x).task_id === a.id),
         runs = linked.filter((x) => x.kind === "execution");
       const unknown = runs.find((x) =>
-        ["unknown", "dispatched"].includes(json(x.meta).status),
+        ["unknown", "dispatched"].includes(metadata(x).status),
       );
       const active = runs.find((x) => x.id === meta.retouch?.active_run);
       const candidates = linked.filter(
         (x) =>
           x.kind === "media" &&
-          !["original", "reference", "working"].includes(json(x.meta).role),
+          !["original", "reference", "working"].includes(metadata(x).role),
       );
       const currentCandidates = candidates.filter((x) =>
         mediaApplicable(x, a, artifacts, digest),
@@ -637,7 +665,7 @@ async function brief(mgr, p) {
                 acceptedReview(x, image, a, artifacts, digest),
               ),
           )
-          .map((x) => json(x.meta).media_id),
+          .map((x) => metadata(x).media_id),
       );
       const delivered = currentImageDelivery(a, artifacts);
       const progress = unknown
@@ -647,7 +675,7 @@ async function brief(mgr, p) {
           : meta.status === "done"
             ? "completed"
             : active
-              ? json(active.meta).status
+              ? metadata(active).status
               : delivered
                 ? "delivered"
                 : currentCandidates.some((x) => acceptedIds.has(x.id))
@@ -666,15 +694,15 @@ async function brief(mgr, p) {
         progress,
         image_outputs: candidates.map((x) => ({
           id: x.id,
-          role: json(x.meta).role,
+          role: metadata(x).role,
           status: currentCandidates.includes(x)
             ? acceptedIds.has(x.id)
               ? "accepted"
               : "candidate"
             : "needs_review",
-          width: json(x.meta).width,
-          height: json(x.meta).height,
-          sha256: json(x.meta).sha256,
+          width: metadata(x).width,
+          height: metadata(x).height,
+          sha256: metadata(x).sha256,
         })),
       };
     });
@@ -686,7 +714,7 @@ async function brief(mgr, p) {
   const unresolved = artifacts.filter(
     (a) =>
       a.kind === "execution" &&
-      ["unknown", "dispatched"].includes(json(a.meta).status),
+      ["unknown", "dispatched"].includes(metadata(a).status),
   );
   return {
     project: p,
@@ -723,16 +751,17 @@ async function brief(mgr, p) {
     ].filter(Boolean),
     unknown_requests: unresolved.map((a) => ({
       id: a.id,
-      task_id: json(a.meta).task_id,
-      status: json(a.meta).status,
+      task_id: metadata(a).task_id,
+      status: metadata(a).status,
     })),
     next_actions: unresolved.length
       ? [{ type: "reconcile", reason: "先对账未知请求，不能重新出图" }]
       : tasks
           .filter(
             (t) =>
-              t.progress === "needs_review" ||
-              !["done", "cancelled"].includes(t.meta.status),
+              t.workflow_scope !== "native" &&
+              (t.progress === "needs_review" ||
+                !["done", "cancelled"].includes(t.meta.status)),
           )
           .map((t) => ({
             type:
@@ -1226,7 +1255,7 @@ export async function run(env, action, rest, args) {
         } else if (action === "task-new") {
           const goal = await artifact(mgr, b.goal, p, "spec");
           check(
-            json(goal.meta).role === "goal",
+            metadata(goal).role === "goal",
             "GOAL",
             "必须绑定原生目标 spec",
           );
@@ -1395,21 +1424,25 @@ async function currentTask(mgr, p, taskId) {
   return t;
 }
 async function noUnknown(mgr, p, taskId) {
-  const rows = await mgr.query(
-    "SELECT * FROM artifacts WHERE project_id=? AND kind IN ('execution','media') AND json_extract(meta,'$.task_id')=?",
-    [p.id, taskId],
-  );
+  // Parse metadata before selecting its business fields. Native roleless records
+  // may have an empty meta column; malformed nonempty values must still reject.
+  const rows = (
+    await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=? AND kind IN ('execution','media')",
+      [p.id],
+    )
+  ).filter((a) => metadata(a).task_id === taskId);
   const ex = rows
     .filter((a) => a.kind === "execution")
     .sort(
       (a, b) =>
-        Number(json(a.meta).status === "received") -
-        Number(json(b.meta).status === "received"),
+        Number(metadata(a).status === "received") -
+        Number(metadata(b).status === "received"),
     )
     .find((a) => pendingExecution(a, rows));
   check(
     !ex,
-    ex && json(ex.meta).status === "received"
+    ex && metadata(ex).status === "received"
       ? "RESULT_PENDING"
       : "UNKNOWN_PENDING",
     "存在待对账或待本地恢复的执行：" + ex?.id + "，不能发起新请求",
@@ -1421,10 +1454,10 @@ async function media(mgr, p, id) {
 }
 async function execution(mgr, p, id) {
   const a = await artifact(mgr, id, p, "execution");
-  return { a, meta: json(a.meta) };
+  return { a, meta: metadata(a) };
 }
 async function localGrant(mgr, grant, identity) {
-  const m = json(grant.meta);
+  const m = metadata(grant);
   const imported = await one(
     mgr,
     "SELECT id FROM events WHERE kind='retouch.import' AND EXISTS(SELECT 1 FROM json_each(json_extract(events.payload,'$.authorization_ids')) WHERE value=?)",
@@ -1442,7 +1475,7 @@ async function localGrant(mgr, grant, identity) {
 }
 async function updateExecution(mgr, a, meta, expected) {
   check(
-    json(a.meta).revision === expected,
+    metadata(a).revision === expected,
     "REVISION_CONFLICT",
     "执行记录已变化，请刷新",
     1,
@@ -1611,7 +1644,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         "SELECT * FROM artifacts WHERE project_id=? AND kind='task' AND id<>?",
         [p.id, t.a.id],
       )) {
-        const dm = json(dependent.meta);
+        const dm = metadata(dependent);
         if ((dm.retouch?.dependencies ?? []).includes(t.a.id)) {
           dm.retouch.context_status = "needs_review";
           await updateTask(mgr, dependent, dm, dm.retouch.revision);
@@ -1643,7 +1676,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       "修订不能更改类型、标题、任务或原生元数据；读取原 ID 后提交正文",
     );
     const old = await artifact(mgr, text(b.id, "id"), p),
-      meta = json(old.meta);
+      meta = metadata(old);
     check(
       ["design", "spec"].includes(old.kind) && meta.role !== "workflow-plan",
       "DOCUMENT_KIND",
@@ -1765,7 +1798,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         (t) =>
           t.id === meta.task_id ||
           (meta.role === "product-facts" &&
-            (json(t.meta).retouch?.fact_keys ?? []).some((k) =>
+            (metadata(t).retouch?.fact_keys ?? []).some((k) =>
               changedKeys.has(k),
             )) ||
           (meta.role !== "goal" &&
@@ -1775,8 +1808,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
                 r.src_id === t.id &&
                 ["described-by", "decided-by", "specified-by"].includes(r.rel),
             )) ||
-          (meta.role === "goal" &&
-            seriesIds.has(json(t.meta).retouch?.goal_id)),
+          (meta.role === "goal" && seriesIds.has(metadata(t).retouch?.goal_id)),
       )
       .map((t) => t.id);
     await invalidateDocumentTasks(
@@ -1794,7 +1826,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     const { a, meta } = await task(mgr, p, b.task);
     await noUnknown(mgr, p, a.id);
     const g = await artifact(mgr, b.goal, p, "spec");
-    check(json(g.meta).role === "goal", "GOAL", "任务须绑定目标 spec");
+    check(metadata(g).role === "goal", "GOAL", "任务须绑定目标 spec");
     const latest = await one(
       mgr,
       "SELECT MAX(version) AS v FROM artifacts WHERE project_id=? AND kind='spec' AND title=?",
@@ -1819,7 +1851,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     const { a: t, meta: tm } = await currentTask(mgr, p, b.task);
     await noUnknown(mgr, p, t.id);
     const image = await media(mgr, p, b.id),
-      im = json(image.meta);
+      im = metadata(image);
     check(
       im.task_id === t.id && !["original", "reference"].includes(im.role),
       "MEDIA_BINDING",
@@ -1964,7 +1996,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
   }
   if (action === "media-review") {
     const a = await media(mgr, p, b.id),
-      meta = json(a.meta);
+      meta = metadata(a);
     const t = await currentTask(mgr, p, meta.task_id);
     const all = await mgr.query(
       "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
@@ -2017,7 +2049,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
   }
   if (action === "delivery-prepare") {
     const a = await media(mgr, p, b.id),
-      m = json(a.meta);
+      m = metadata(a);
     const taskContext = await currentTask(mgr, p, m.task_id);
     const all = await mgr.query(
       "SELECT * FROM artifacts WHERE project_id=? ORDER BY created,id",
@@ -2035,8 +2067,8 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     assertInvariants(all, a, taskContext.a);
     check(
       accepted &&
-        json(accepted.meta).accepted === true &&
-        json(accepted.meta).source === "user",
+        metadata(accepted).accepted === true &&
+        metadata(accepted).source === "user",
       "ACCEPTANCE",
       "交付须有用户对实际文件的明确接受",
       1,
@@ -2067,7 +2099,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
   }
   if (action === "delivery-complete") {
     const a = await artifact(mgr, b.id, p, "delivery"),
-      m = json(a.meta);
+      m = metadata(a);
     check(
       m.status === "preparing" && /^[a-f0-9]{64}$/.test(b.manifest_sha256),
       "DELIVERY",
@@ -2084,7 +2116,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
   }
   if (action === "delivery-abandon") {
     const a = await artifact(mgr, b.id, p, "delivery"),
-      m = json(a.meta);
+      m = metadata(a);
     check(
       m.status === "preparing" && b.publication_inspected === true,
       "DELIVERY_STATE",
@@ -2120,7 +2152,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     for (const id of [...inputs, ...outputs]) await media(mgr, p, id);
     for (const id of outputs)
       check(
-        json((await media(mgr, p, id)).meta).task_id === t.a.id,
+        metadata(await media(mgr, p, id)).task_id === t.a.id,
         "OUTPUT_BINDING",
         "外部结果须属于该任务",
       );
@@ -2180,7 +2212,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     for (const id of outputs) await media(mgr, p, id);
     for (const id of outputs)
       check(
-        json((await media(mgr, p, id)).meta).task_id === meta.task_id,
+        metadata(await media(mgr, p, id)).task_id === meta.task_id,
         "OUTPUT_BINDING",
         "外部结果须属于该任务",
       );
@@ -2201,7 +2233,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     await noUnknown(mgr, p, b.task);
     const { a, meta } = await currentTask(mgr, p, b.task);
     const input = await media(mgr, p, b.input),
-      dimensions = json(input.meta);
+      dimensions = metadata(input);
     check(
       dimensions.task_id === a.id,
       "INPUT_BINDING",
@@ -2258,11 +2290,15 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     const active = meta.retouch.requirements.filter(
       (g) => g.text.trim() && !g.disabled,
     );
-    const facts = await one(
-      mgr,
-      "SELECT * FROM artifacts WHERE project_id=? AND kind='spec' AND json_extract(meta,'$.role')='product-facts' ORDER BY version DESC LIMIT 1",
+    const factCandidates = await mgr.query(
+      "SELECT * FROM artifacts WHERE project_id=? AND kind='spec' ORDER BY version DESC",
       [p.id],
     );
+    // Filter the entire project-scoped result through the strict reader, not
+    // json_valid or a short-circuit find that could hide later malformed rows.
+    const facts =
+      factCandidates.filter((a) => metadata(a).role === "product-facts")[0] ??
+      null;
     const purpose = b.purpose ?? meta.retouch.purpose ?? "unspecified";
     check(
       !facts || purpose !== "unspecified",
@@ -2496,7 +2532,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
     const { a, meta } = await currentTask(mgr, p, b.task);
     for (const dep of meta.retouch.dependencies)
       check(
-        json((await artifact(mgr, dep, p, "task")).meta).status === "done",
+        metadata(await artifact(mgr, dep, p, "task")).status === "done",
         "DEPENDENCY_PENDING",
         "前序任务尚未完成",
         1,
@@ -2510,7 +2546,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       1,
     );
     const grant = await artifact(mgr, b.grant, p, "authorization"),
-      gm = json(grant.meta);
+      gm = metadata(grant);
     const identity = json(
       (
         await one(
@@ -2705,14 +2741,14 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         const uploadInput = await media(mgr, p, uploads.input_id),
           referenceUploads = [];
         check(
-          json(uploadInput.meta).parents.includes(input.id),
+          metadata(uploadInput).parents.includes(input.id),
           "API_UPLOAD_BINDING",
           "传输输入未绑定当前步骤输入",
         );
         for (let i = 0; i < references.length; i++) {
           const r = await media(mgr, p, uploads.reference_ids[i]);
           check(
-            json(r.meta).parents.includes(references[i].artifact.id),
+            metadata(r).parents.includes(references[i].artifact.id),
             "API_UPLOAD_BINDING",
             "参考传输素材来源不符",
           );
@@ -2723,7 +2759,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
           : null;
         check(
           !!mask === !!step.region &&
-            (!mask || json(mask.meta).parents.includes(input.id)),
+            (!mask || metadata(mask).parents.includes(input.id)),
           "API_MASK",
           "局部步骤须使用绑定当前输入的明确 mask",
         );
@@ -2741,9 +2777,9 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
               .preserve,
           ),
           uploads: {
-            input: json(uploadInput.meta).sha256,
-            references: referenceUploads.map((r) => json(r.meta).sha256),
-            mask: mask ? json(mask.meta).sha256 : null,
+            input: metadata(uploadInput).sha256,
+            references: referenceUploads.map((r) => metadata(r).sha256),
+            mask: mask ? metadata(mask).sha256 : null,
           },
         };
         check(
@@ -2854,8 +2890,8 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       );
       if (step.region)
         check(
-          json(input.meta).width === step.coordinate_system.width &&
-            json(input.meta).height === step.coordinate_system.height,
+          metadata(input).width === step.coordinate_system.width &&
+            metadata(input).height === step.coordinate_system.height,
           "COORDINATE_SYSTEM",
           "前序结果尺寸已变化，旧区域坐标不能用于当前步骤",
           1,
@@ -2871,11 +2907,11 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
           purpose: plan.purpose ?? "unspecified",
           fact_check: plan.fact_check ?? null,
           facts_id: plan.facts_id ?? null,
-          input: { id: input.id, ...json(input.meta) },
+          input: { id: input.id, ...metadata(input) },
           references: references.map((r) => ({
             id: r.artifact.id,
             purpose: r.purpose,
-            ...json(r.artifact.meta),
+            ...metadata(r.artifact),
           })),
           requirements: plan.requirements,
           preserve: json((await artifact(mgr, plan.goal_id, p, "spec")).content)
@@ -2895,7 +2931,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         1,
       );
       const raw = await media(mgr, p, b.raw_output),
-        rm = json(raw.meta);
+        rm = metadata(raw);
       check(
         rm.task_id === meta.task_id && rm.parents.includes(meta.input_id),
         "API_RESULT_BINDING",
@@ -2988,11 +3024,11 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
           1,
         );
       const output = await media(mgr, p, b.output),
-        om = json(output.meta);
+        om = metadata(output);
       if (b.processed_output) {
         const processed = await media(mgr, p, b.processed_output);
         check(
-          json(processed.meta).parents.includes(b.raw_output) &&
+          metadata(processed).parents.includes(b.raw_output) &&
             om.parents.includes(processed.id),
           "POSTPROCESS_BINDING",
           "后处理与候选必须保留原始结果的完整派生",
@@ -3009,7 +3045,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       if (b.raw_output) {
         const raw = await media(mgr, p, b.raw_output);
         check(
-          json(raw.meta).task_id === meta.task_id,
+          metadata(raw).task_id === meta.task_id,
           "OUTPUT_BINDING",
           "原生输出须属于当前任务",
         );
@@ -3057,7 +3093,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         );
       }
       check(
-        b.sha256 === json(candidate.meta).sha256 &&
+        b.sha256 === metadata(candidate).sha256 &&
           ["PASS", "FAIL", "UNKNOWN"].includes(b.verdict),
         "REVIEW",
         "检查须绑定当前候选 hash 与实际结论",
@@ -3138,7 +3174,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         t.a,
       );
       check(
-        b.sha256 === json(candidate.meta).sha256 && b.source === "user",
+        b.sha256 === metadata(candidate).sha256 && b.source === "user",
         "ACCEPTANCE",
         "用户接受须绑定实际候选 hash",
       );
@@ -3240,7 +3276,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       "SELECT * FROM artifacts WHERE project_id=?",
       [p.id],
     );
-    const linked = artifacts.filter((x) => json(x.meta).task_id === a.id);
+    const linked = artifacts.filter((x) => metadata(x).task_id === a.id);
     if (meta.retouch.kind === "image")
       check(
         currentImageDelivery({ ...a, meta: stable(meta) }, artifacts),
@@ -3282,7 +3318,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
         item.id,
         "evidenced-by",
       );
-      const em = json(item.meta);
+      const em = metadata(item);
       if (em.media_id)
         await relation(
           mgr,
@@ -3488,7 +3524,7 @@ export function validateSnapshot(s) {
   );
   validateFlowSnapshot(t.artifacts);
   for (const a of t.artifacts) {
-    const m = json(a.meta);
+    const m = metadata(a);
     if (a.kind === "profile" && json(a.content).rating_record)
       rawRating(json(a.content).rating_record);
     if (m.role === "product-facts") productFacts(json(a.content), t.artifacts);
@@ -3500,8 +3536,7 @@ export function validateSnapshot(s) {
     if (m.role === "workflow-plan" && json(a.content).facts_id) {
       const plan = json(a.content),
         facts = t.artifacts.find(
-          (x) =>
-            x.id === plan.facts_id && json(x.meta).role === "product-facts",
+          (x) => x.id === plan.facts_id && metadata(x).role === "product-facts",
         );
       check(
         facts && plan.facts_hash === digest(facts.content),
@@ -3762,7 +3797,7 @@ async function restore(mgr, api, b) {
     }
     t = remap(t);
     for (const a of t.artifacts) {
-      if (json(a.meta).role === "output-registration-correction") {
+      if (metadata(a).role === "output-registration-correction") {
         const v = json(a.content),
           source = t.artifacts.find((x) => x.id === v.source.artifact_id);
         v.source.content_hash = digest(source.content);
@@ -3770,7 +3805,7 @@ async function restore(mgr, api, b) {
       }
     }
     for (const a of t.artifacts) {
-      const m = json(a.meta);
+      const m = metadata(a);
       if (m.contract_id) {
         const contract = t.artifacts.find((x) => x.id === m.contract_id);
         m.contract_hash = digest(contract.content);
@@ -3780,7 +3815,7 @@ async function restore(mgr, api, b) {
     for (const a of t.artifacts) {
       if (
         !["spec", "execution"].includes(a.kind) ||
-        !["workflow-plan", "workflow-run"].includes(json(a.meta).role)
+        !["workflow-plan", "workflow-run"].includes(metadata(a).role)
       )
         continue;
       const plan = json(a.content);
@@ -3803,7 +3838,7 @@ async function restore(mgr, api, b) {
       }
     }
     for (const a of t.artifacts) {
-      const m = json(a.meta);
+      const m = metadata(a);
       const rebindCrop = (op) => {
         if (op?.op === "extract" && op.approval) {
           const source = t.artifacts.find(
@@ -3823,7 +3858,7 @@ async function restore(mgr, api, b) {
       }
     }
     for (const a of t.artifacts) {
-      const m = json(a.meta);
+      const m = metadata(a);
       if (m.role !== "suite-export") continue;
       const frozen = json(a.content);
       const suite = t.artifacts.find((x) => x.id === frozen.snapshot_id);
@@ -3908,7 +3943,7 @@ async function restore(mgr, api, b) {
       continue;
     }
     if (permission?.schema === "retouch.output-correction-permission/v1") {
-      const m = json(a.meta);
+      const m = metadata(a);
       m.correction_permission_import_id = a.id;
       a.meta = stable(m);
     }

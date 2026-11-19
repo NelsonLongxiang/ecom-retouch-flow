@@ -36,6 +36,8 @@ async function fixture() {
     meta: JSON.stringify({
       status: "todo",
       retouch: {
+        schema: "retouch.native/v1",
+        kind: "image",
         revision: 2,
         goal_id: "goal",
         goal_version: 1,

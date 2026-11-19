@@ -392,6 +392,8 @@ function relativeInspectionFixture(requireAbsolute: boolean) {
     meta: JSON.stringify({
       status: "doing",
       retouch: {
+        schema: "retouch.native/v1",
+        kind: "image",
         goal_id: "synthetic-goal",
         goal_version: 1,
         requirements: [],

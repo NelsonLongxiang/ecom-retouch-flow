@@ -6,6 +6,12 @@
 
 结构化意图、冲突、保持项和套图用本文专用命令追加版本，不通过通用artifact revise修改其受保护角色。历史仍用artifact show/history读取，普通design/spec继续沿用既有修订接口。
 
+## 普通原生对象与修图元数据
+
+ygl普通produce文档的空meta是合法的无角色记录，不应因参与brief／保持项／后处理上下文扫描而触发JSON错误。共用元数据读取只将缺失、原始null或空字符串映射为空对象；非空畸形JSON报METADATA_JSON，数组、标量及JSON null报METADATA_SHAPE，不能吞错后伪装reference／授权或已接受。
+
+没有retouch上下文的普通治理task在brief中显示native_task／workflow_scope=native，不进入修图候选、接受、交付或修图next_actions；修图写命令仍要求合法profile，跨项目ID和伪profile拒绝且事务不追加领域事实。共用绑定也核schema／kind，使套图读口不能将伪profile展示为当前已接受。计划与待执行查询按项目读取工件，再统一严格解析meta，不用json_valid过滤洗白坏JSON。已有FAIL／UNKNOWN与真实CAS不改写。普通治理task的完整ZIP交换仍有独立兼容限制，外部relation／SNAPSHOT_TASK问题不在本补丁范围，不作为出图前置。兼容修复使用隔离的mixed-native专项，不代表历史全量重跑、真实业务恢复或生图执行；入口为`node scripts/test.mjs --suite mixed-native --ygl-entry <实际入口> --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/check`。
+
 ## E03 · 上下文与结果复核
 
 `task context-review` 更新目标并增加上下文epoch，保留旧图片、旧检查和旧交付。旧结果不能因为上下文已复核就重新变成当前候选；有旧图但没有当前候选时，progress为 `result_needs_review`，而非planned。

@@ -1,5 +1,5 @@
 // Executable content/evidence contracts, evaluated only from native artifacts.
-import { digest, stable } from "./value.mjs";
+import { digest, stable, metadata } from "./value.mjs";
 import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
   taskBinding,
@@ -7,8 +7,7 @@ import {
   mediaApplicable,
   acceptedReview,
 } from "./applicability.mjs";
-export const meta = (a) =>
-  typeof a.meta === "string" ? JSON.parse(a.meta) : a.meta;
+export const meta = metadata;
 export const content = (a) =>
   typeof a.content === "string" ? JSON.parse(a.content) : a.content;
 export function need(ok, code, message) {

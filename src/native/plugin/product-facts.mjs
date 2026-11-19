@@ -1,3 +1,4 @@
+import { metadata } from "./value.mjs";
 const fail = (ok, message) => {
   if (!ok)
     throw Object.assign(new Error(message), { code: "PRODUCT_FACTS", rc: 2 });
@@ -76,7 +77,7 @@ export function productFacts(value, artifacts = []) {
       "字段须声明证据性质",
     );
     if (f.status === "confirmed") {
-      const sm = JSON.parse(source.meta || "{}");
+      const sm = metadata(source);
       fail(
         f.value !== null &&
           f.subject === "current-sku" &&
