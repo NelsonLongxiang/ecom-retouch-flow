@@ -1,3 +1,6 @@
+export function suiteView(snapshot: any, artifacts: any[]): any;
+export function meta(artifact: any): Record<string, any>;
+export function latest(artifacts: any[], role: string, task?: string): any;
 export function assertPostprocessOutput(
   execution: any,
   image: any,

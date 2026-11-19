@@ -2,7 +2,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-const meta = (a) => (typeof a.meta === "string" ? JSON.parse(a.meta) : a.meta);
+import { metadata } from "./value.mjs";
+const meta = metadata;
 const need = (ok, code, message) => {
   if (!ok) throw Object.assign(new Error(message), { code, rc: 2 });
 };

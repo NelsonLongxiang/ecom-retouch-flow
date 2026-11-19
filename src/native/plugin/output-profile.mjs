@@ -1,6 +1,6 @@
 // Fixed suite output recipes; native spec/delivery remain the only authority.
-import { digest } from "./value.mjs";
-const meta = (a) => (typeof a.meta === "string" ? JSON.parse(a.meta) : a.meta);
+import { digest, metadata } from "./value.mjs";
+const meta = metadata;
 function need(ok, code, message) {
   if (!ok) throw Object.assign(new Error(message), { code, rc: 2 });
 }
