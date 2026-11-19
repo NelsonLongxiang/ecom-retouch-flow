@@ -2,6 +2,11 @@
 import { digest, stable, metadata } from "./value.mjs";
 import { outputProfile, cropApproval } from "./output-profile.mjs";
 import {
+  productConsistency,
+  productProtection,
+  productComposite,
+} from "./product-consistency.mjs";
+import {
   taskBinding,
   sameBinding,
   mediaApplicable,
@@ -65,6 +70,7 @@ export function assertPostprocessOutput(execution, image, artifacts) {
             "resize",
             "extend",
             "encode",
+            "product-composite",
           ].includes(op.op),
       ) &&
       record(descriptor.renderer),
@@ -319,7 +325,7 @@ export function conflict(v, artifacts) {
   }
   return structuredClone(v);
 }
-export function invariants(v, artifacts) {
+export function invariants(v, artifacts, historical = false) {
   need(
     v?.schema === "retouch.invariants/v1" &&
       Array.isArray(v.items) &&
@@ -344,6 +350,8 @@ export function invariants(v, artifacts) {
       "AI重建或假设不能作为确定的商品保持依据",
     );
   }
+  if (v.product_consistency)
+    productConsistency(v.product_consistency, v.items, artifacts, historical);
   return structuredClone(v);
 }
 export function inspectionItems(items, definitions) {
@@ -384,7 +392,14 @@ function itemVerdicts(artifacts, image, task, contract, role) {
 export function invariantView(artifacts, image, task) {
   const contract = latest(artifacts, "product-invariants", task.id);
   if (!contract)
-    return { status: "NOT_DECLARED", contract_id: null, items: [] };
+    return {
+      status:
+        meta(task).retouch?.purpose === "product-accurate"
+          ? "UNKNOWN"
+          : "NOT_DECLARED",
+      contract_id: null,
+      items: [],
+    };
   const assessed = itemVerdicts(
     artifacts,
     image,
@@ -397,15 +412,39 @@ export function invariantView(artifacts, image, task) {
     ...(assessed.get(i.id) ?? { verdict: "NOT_EVALUATED" }),
   }));
   const required = items.filter((i) => i.required);
+  let protection = null;
+  if (content(contract).product_consistency) {
+    try {
+      productConsistency(
+        content(contract).product_consistency,
+        content(contract).items,
+        artifacts,
+      );
+      const proof = productProtection(artifacts, image, task);
+      protection = {
+        status: proof ? "PROVENANCE_READY" : "NOT_REQUIRED",
+        final_pixel_check_required: !!proof,
+      };
+    } catch (error) {
+      protection = {
+        status: "UNKNOWN",
+        code: error.code,
+        reason: error.message,
+      };
+    }
+  }
   return {
     contract_id: contract.id,
+    ...(protection ? { product_protection: protection } : {}),
     status: required.some((i) => i.verdict === "FAIL")
       ? "FAIL"
-      : required.every((i) => i.verdict === "PASS")
-        ? "PASS"
-        : required.some((i) => i.verdict === "UNKNOWN")
-          ? "UNKNOWN"
-          : "NOT_EVALUATED",
+      : protection?.status === "UNKNOWN"
+        ? "UNKNOWN"
+        : required.every((i) => i.verdict === "PASS")
+          ? "PASS"
+          : required.some((i) => i.verdict === "UNKNOWN")
+            ? "UNKNOWN"
+            : "NOT_EVALUATED",
     items,
   };
 }
@@ -730,7 +769,8 @@ export function validateFlowSnapshot(artifacts) {
     }
     if (m.role === "business-intent") businessIntent(content(a), artifacts);
     if (m.role === "evidence-conflict") conflict(content(a), artifacts);
-    if (m.role === "product-invariants") invariants(content(a), artifacts);
+    if (m.role === "product-invariants")
+      invariants(content(a), artifacts, true);
     if (m.role === "suite-snapshot") {
       const v = suiteSnapshot(content(a), artifacts),
         previous = v.previous_id && find(v.previous_id);
@@ -788,6 +828,27 @@ export function validateFlowSnapshot(artifacts) {
           cropApproval(step.operation, artifacts, true);
     }
     if (m.role === "local-postprocess") {
+      const descriptor = content(a);
+      for (const op of descriptor.operations ?? [])
+        if (op.op === "product-composite") {
+          need(
+            descriptor.operations.length === 1,
+            "PRODUCT_COMPOSITE",
+            "交换产品层必须是唯一最终合成",
+          );
+          productComposite(op, find(descriptor.input_id), artifacts, true);
+          if (m.product_protection)
+            need(
+              m.outputs?.includes(m.product_protection.media_id) &&
+                find(m.product_protection.media_id)?.kind === "media" &&
+                meta(find(m.product_protection.media_id)).sha256 ===
+                  m.product_protection.sha256 &&
+                m.product_protection.contract_id === op.contract_id &&
+                m.product_protection.contract_hash === op.contract_hash,
+              "PRODUCT_PROTECTION_REQUIRED",
+              "交换保护证明未绑定实际最终媒体/契约",
+            );
+        }
       for (const op of content(a).operations ?? [])
         if (op.op === "extract" && op.approval)
           cropApproval(op, artifacts, true);
@@ -804,6 +865,24 @@ export function validateFlowSnapshot(artifacts) {
     try {
       plan = content(a);
     } catch {}
+    if (plan?.product_contract) {
+      const frozen = plan.product_contract,
+        c = find(frozen.contract_id);
+      need(
+        c &&
+          meta(c).role === "product-invariants" &&
+          c.version === frozen.version &&
+          digest(c.content) === frozen.content_hash &&
+          stable(content(c).product_consistency) ===
+            stable(frozen.consistency) &&
+          (plan.steps ?? []).every(
+            (s) => stable(s.product_contract) === stable(frozen),
+          ),
+        "PRODUCT_CONTRACT_STALE",
+        "交换计划/运行未钉商品契约精确版本/hash",
+      );
+      productConsistency(frozen.consistency, content(c).items, artifacts, true);
+    }
     if (plan?.contracts) {
       need(
         !plan.contracts.intent_id ||

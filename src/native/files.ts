@@ -152,6 +152,16 @@ export async function completeRun(
     "HOST_RECEIPT",
     "工具回执须包含 tool 和去敏后的 tool_receipt",
   );
+  if (!registeredRaw && receipt?.raw_output_id)
+    registeredRaw = await client.call("show", {
+      project,
+      id: receipt.raw_output_id,
+    });
+  if (!processedOutput && receipt?.processed_output_id)
+    processedOutput = await client.call("show", {
+      project,
+      id: receipt.processed_output_id,
+    });
   const prior = await client.call("receipt", { request_id: requestId });
   if (prior?.result) {
     const previous = prior.result.execution;
@@ -178,6 +188,13 @@ export async function completeRun(
         digest(receipt),
       "REQUEST_CONFLICT",
       "相同回接请求携带不同来源回执",
+      1,
+    );
+    requireThat(
+      (JSON.parse(previous.meta).processed_output ?? null) ===
+        (processedOutput?.id ?? null),
+      "REQUEST_CONFLICT",
+      "相同回接键携带不同最终后处理对象",
       1,
     );
     return { ...prior.result, replayed: true };
