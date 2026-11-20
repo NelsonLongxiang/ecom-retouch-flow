@@ -12,6 +12,14 @@ ygl普通produce文档的空meta是合法的无角色记录，不应因参与bri
 
 没有retouch上下文的普通治理task在brief中显示native_task／workflow_scope=native，不进入修图候选、接受、交付或修图next_actions；修图写命令仍要求合法profile，跨项目ID和伪profile拒绝且事务不追加领域事实。共用绑定也核schema／kind，使套图读口不能将伪profile展示为当前已接受。计划与待执行查询按项目读取工件，再统一严格解析meta，不用json_valid过滤洗白坏JSON。已有FAIL／UNKNOWN与真实CAS不改写。普通治理task的完整ZIP交换仍有独立兼容限制，外部relation／SNAPSHOT_TASK问题不在本补丁范围，不作为出图前置。兼容修复使用隔离的mixed-native专项，不代表历史全量重跑、真实业务恢复或生图执行；入口为`node scripts/test.mjs --suite mixed-native --ygl-entry <实际入口> --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/check`。
 
+## #26 · 文档修订的类型化失效传播
+
+`artifact revise`继续校验当前ID/version/content_hash，普通原生治理task关联的design/spec可追加版本并继承关联，不补造retouch对象、不改普通任务的status/owner。真实retouch消费者及依赖闭包仍进入needs_review、锁回节点，已done者重新doing；声明了retouch但schema/kind/goal/requirements/revision/依赖类型无效者以安全类型码拒绝，不能按普通任务跳过。非空坏meta仍由严格metadata读取拒绝。原生文档/关系/task/node_state/领域事件和收据的回滚通过隔离快照比对核验，不从错误码推断所有版本均无副作用。
+
+修订design只更新当前design_id属于该确切原生系列的直接消费者；decided-by等治理关联可触发复核，但不能将另一个已选择design指针替换为治理ADR。依赖任务只标失效，不继承上游design。旧版及关系保持，同键重放不重复追加版本或失效操作，异意图及stale请求继续拒绝；citation快照和受保护角色不可借通用修订改写。普通node-less治理task不能凭本修复成为retouch task-new支持的依赖节点；普通治理task的完整交换SNAPSHOT_TASK遗留不在本修复范围。
+
+正式定向入口：`node scripts/test.mjs --suite document-invalidation --ygl-entry <已安装入口> --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/check`。测试仅合成隔离home；坏profile/JSON故障注入只操作测试自身数据库，不修改真实业务记录。
+
 ## E03 · 上下文与结果复核
 
 `task context-review` 更新目标并增加上下文epoch，保留旧图片、旧检查和旧交付。旧结果不能因为上下文已复核就重新变成当前候选；有旧图但没有当前候选时，progress为 `result_needs_review`，而非planned。
