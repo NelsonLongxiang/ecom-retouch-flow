@@ -110,6 +110,7 @@ let engineeringOnly = false,
   validationOnly = false,
   mixedNativeOnly = false,
   productOnly = false,
+  documentInvalidationOnly = false,
   immutableOnly = false;
 for (let index = 0; index < args.length; index++) {
   if (args[index] === "--ygl-entry" && args[index + 1])
@@ -171,6 +172,12 @@ for (let index = 0; index < args.length; index++) {
   ) {
     productOnly = true;
     index++;
+  } else if (
+    args[index] === "--suite" &&
+    args[index + 1] === "document-invalidation"
+  ) {
+    documentInvalidationOnly = true;
+    index++;
   } else throw new Error("Unknown test option: " + args[index]);
 }
 if (Number(typecheckOnly) + Number(environmentOnly) > 1)
@@ -188,7 +195,8 @@ if (
     Number(correctionOnly) +
     Number(validationOnly) +
     Number(mixedNativeOnly) +
-    Number(productOnly) >
+    Number(productOnly) +
+    Number(documentInvalidationOnly) >
   1
 )
   throw new Error("Choose one test suite.");
@@ -209,7 +217,8 @@ if (
     correctionOnly ||
     validationOnly ||
     mixedNativeOnly ||
-    productOnly)
+    productOnly ||
+    documentInvalidationOnly)
 )
   throw new Error("--full-step covers the entire native suite, not a subset");
 if (!unitOnly && !typecheckOnly && !environmentOnly && !entry)
@@ -337,50 +346,59 @@ const files = (await fs.readdir(path.join(root, "tests")))
         name === "native-product-consistency-boundaries.test.mjs") &&
       (legacy
         ? !name.startsWith("native-")
-        : productOnly
+        : documentInvalidationOnly
           ? [
-              "native-issues-product-consistency.test.ts",
-              "native-product-consistency-boundaries.test.mjs",
-              "native-runner-unit.test.ts",
+              "native-documents-invalidation.test.ts",
+              "native-engineering.test.ts",
+              "native-documents.test.ts",
               "native-mixed-metadata.test.ts",
-              "native-issues-received-correction.test.ts",
+              "native-runner-unit.test.ts",
             ].includes(name)
-          : mixedNativeOnly
+          : productOnly
             ? [
+                "native-issues-product-consistency.test.ts",
+                "native-product-consistency-boundaries.test.mjs",
+                "native-runner-unit.test.ts",
                 "native-mixed-metadata.test.ts",
-                "native-issues-unit.test.ts",
-                "native-physical-reference-unit.test.ts",
-                "native-output-cache-unit.test.ts",
+                "native-issues-received-correction.test.ts",
               ].includes(name)
-            : validationOnly
+            : mixedNativeOnly
               ? [
-                  "native-validation.test.ts",
-                  "native-runner-unit.test.ts",
+                  "native-mixed-metadata.test.ts",
+                  "native-issues-unit.test.ts",
+                  "native-physical-reference-unit.test.ts",
+                  "native-output-cache-unit.test.ts",
                 ].includes(name)
-              : correctionOnly
+              : validationOnly
                 ? [
-                    "native-issues-received-correction.test.ts",
+                    "native-validation.test.ts",
                     "native-runner-unit.test.ts",
                   ].includes(name)
-                : apiOnly
-                  ? name.startsWith("native-api")
-                  : documentsOnly
-                    ? name.startsWith("native-documents")
-                    : issuesOnly
-                      ? name.startsWith("native-issues")
-                      : engineeringOnly
-                        ? name.startsWith("native-engineering")
-                        : zipOnly
-                          ? name.startsWith("native-zip")
-                          : contractOnly
-                            ? name === "native-outputs-contract.test.ts"
-                            : recoveryOnly
-                              ? name === "native-outputs-recovery.test.ts"
-                              : outputsOnly
-                                ? name.startsWith("native-outputs") ||
-                                  name === "native-output-cache-unit.test.ts" ||
-                                  name === "native-issues-workflow.test.ts"
-                                : name.startsWith("native-")),
+                : correctionOnly
+                  ? [
+                      "native-issues-received-correction.test.ts",
+                      "native-runner-unit.test.ts",
+                    ].includes(name)
+                  : apiOnly
+                    ? name.startsWith("native-api")
+                    : documentsOnly
+                      ? name.startsWith("native-documents")
+                      : issuesOnly
+                        ? name.startsWith("native-issues")
+                        : engineeringOnly
+                          ? name.startsWith("native-engineering")
+                          : zipOnly
+                            ? name.startsWith("native-zip")
+                            : contractOnly
+                              ? name === "native-outputs-contract.test.ts"
+                              : recoveryOnly
+                                ? name === "native-outputs-recovery.test.ts"
+                                : outputsOnly
+                                  ? name.startsWith("native-outputs") ||
+                                    name ===
+                                      "native-output-cache-unit.test.ts" ||
+                                    name === "native-issues-workflow.test.ts"
+                                  : name.startsWith("native-")),
   )
   .sort()
   .map((name) => "tests/" + name);
@@ -782,6 +800,16 @@ const productBoundaryPassed =
   productBoundaries["renderer-object"]?.failed_complete_snapshot_unchanged ===
     true &&
   productBoundaries["renderer-object"]?.completion_receipt === false;
+const documentInvalidationEvidence =
+  unitOnly || legacy
+    ? null
+    : await fs
+        .readFile(
+          path.join(runRoot, "native-document-invalidation-evidence.json"),
+          "utf8",
+        )
+        .then(JSON.parse)
+        .catch(() => null);
 let passed =
   exitCode === 0 &&
   counts.tests > 0 &&
@@ -793,56 +821,61 @@ let passed =
       (legacy
         ? nativeEvidence?.verdict === "PASS" &&
           contextEvidence?.verdict === "PASS"
-        : productOnly
-          ? productEvidence?.verdict === "PASS" &&
-            productBoundaryPassed &&
-            mixedNativeEvidence?.verdict === "PASS" &&
-            correctionEvidence?.verdict === "PASS"
-          : mixedNativeOnly
-            ? mixedNativeEvidence?.verdict === "PASS"
-            : validationOnly
-              ? validationEvidence?.verdict === "PASS" &&
-                validationEvidence?.software_positive?.actual === "PASS" &&
-                validationEvidence?.intended_business_negative?.actual ===
-                  "FAIL" &&
-                validationEvidence?.unknown_control?.actual === "UNKNOWN" &&
-                validationEvidence?.project_self_check?.status === "PASS"
-              : correctionOnly
-                ? correctionEvidence?.verdict === "PASS"
-                : apiOnly
-                  ? apiEvidence?.verdict === "PASS"
-                  : documentsOnly
-                    ? documentsEvidence?.verdict === "PASS"
-                    : issuesOnly
-                      ? issuesEvidence?.verdict === "PASS"
-                      : contractOnly
-                        ? contractEvidence?.verdict === "PASS"
-                        : recoveryOnly
-                          ? recoveryEvidence?.verdict === "PASS"
-                          : outputsOnly
-                            ? outputEvidence?.verdict === "PASS" &&
-                              outputLargeEvidence?.verdict === "PASS" &&
-                              recoveryEvidence?.verdict === "PASS" &&
-                              contractEvidence?.verdict === "PASS"
-                            : zipOnly
-                              ? zipEvidence?.verdict === "PASS"
-                              : engineeringOnly
-                                ? engineeringEvidence?.verdict === "PASS"
-                                : wrapperEvidence?.verdict === "PASS" &&
-                                  apiEvidence?.verdict === "PASS" &&
-                                  documentsEvidence?.verdict === "PASS" &&
-                                  issuesEvidence?.verdict === "PASS" &&
-                                  engineeringEvidence?.verdict === "PASS" &&
-                                  zipEvidence?.verdict === "PASS" &&
-                                  outputEvidence?.verdict === "PASS" &&
-                                  outputLargeEvidence?.verdict === "PASS" &&
-                                  recoveryEvidence?.verdict === "PASS" &&
-                                  contractEvidence?.verdict === "PASS" &&
-                                  correctionEvidence?.verdict === "PASS" &&
-                                  validationEvidence?.verdict === "PASS" &&
-                                  mixedNativeEvidence?.verdict === "PASS" &&
-                                  productEvidence?.verdict === "PASS" &&
-                                  productBoundaryPassed)));
+        : documentInvalidationOnly
+          ? documentInvalidationEvidence?.verdict === "PASS" &&
+            documentsEvidence?.verdict === "PASS" &&
+            engineeringEvidence?.verdict === "PASS" &&
+            mixedNativeEvidence?.verdict === "PASS"
+          : productOnly
+            ? productEvidence?.verdict === "PASS" &&
+              productBoundaryPassed &&
+              mixedNativeEvidence?.verdict === "PASS" &&
+              correctionEvidence?.verdict === "PASS"
+            : mixedNativeOnly
+              ? mixedNativeEvidence?.verdict === "PASS"
+              : validationOnly
+                ? validationEvidence?.verdict === "PASS" &&
+                  validationEvidence?.software_positive?.actual === "PASS" &&
+                  validationEvidence?.intended_business_negative?.actual ===
+                    "FAIL" &&
+                  validationEvidence?.unknown_control?.actual === "UNKNOWN" &&
+                  validationEvidence?.project_self_check?.status === "PASS"
+                : correctionOnly
+                  ? correctionEvidence?.verdict === "PASS"
+                  : apiOnly
+                    ? apiEvidence?.verdict === "PASS"
+                    : documentsOnly
+                      ? documentsEvidence?.verdict === "PASS"
+                      : issuesOnly
+                        ? issuesEvidence?.verdict === "PASS"
+                        : contractOnly
+                          ? contractEvidence?.verdict === "PASS"
+                          : recoveryOnly
+                            ? recoveryEvidence?.verdict === "PASS"
+                            : outputsOnly
+                              ? outputEvidence?.verdict === "PASS" &&
+                                outputLargeEvidence?.verdict === "PASS" &&
+                                recoveryEvidence?.verdict === "PASS" &&
+                                contractEvidence?.verdict === "PASS"
+                              : zipOnly
+                                ? zipEvidence?.verdict === "PASS"
+                                : engineeringOnly
+                                  ? engineeringEvidence?.verdict === "PASS"
+                                  : wrapperEvidence?.verdict === "PASS" &&
+                                    apiEvidence?.verdict === "PASS" &&
+                                    documentsEvidence?.verdict === "PASS" &&
+                                    issuesEvidence?.verdict === "PASS" &&
+                                    engineeringEvidence?.verdict === "PASS" &&
+                                    zipEvidence?.verdict === "PASS" &&
+                                    outputEvidence?.verdict === "PASS" &&
+                                    outputLargeEvidence?.verdict === "PASS" &&
+                                    recoveryEvidence?.verdict === "PASS" &&
+                                    contractEvidence?.verdict === "PASS" &&
+                                    correctionEvidence?.verdict === "PASS" &&
+                                    validationEvidence?.verdict === "PASS" &&
+                                    mixedNativeEvidence?.verdict === "PASS" &&
+                                    productEvidence?.verdict === "PASS" &&
+                                    productBoundaryPassed)));
 function parseTapCounts(stdout) {
   const counts = {};
   for (const name of [
@@ -1021,31 +1054,34 @@ const report = {
   architecture: legacy
     ? "HISTORICAL_LEDGER_FIXTURES_ONLY"
     : "YGL_NATIVE_WRAPPER",
-  test_suite: productOnly
-    ? "PRODUCT_CONSISTENCY"
-    : mixedNativeOnly
-      ? "MIXED_NATIVE_METADATA"
-      : validationOnly
-        ? "VALIDATION_CONVERGENCE"
-        : correctionOnly
-          ? "RECEIVED_OUTPUT_CORRECTION"
-          : apiOnly
-            ? "API_FALLBACK"
-            : documentsOnly
-              ? "NATIVE_DOCUMENTS"
-              : issuesOnly
-                ? "RETROSPECTIVE_ISSUES"
-                : contractOnly
-                  ? "OUTPUT_CONTRACT"
-                  : recoveryOnly
-                    ? "OUTPUT_RECOVERY"
-                    : outputsOnly
-                      ? "SNAPSHOT_OUTPUTS"
-                      : zipOnly
-                        ? "ZIP_SAFETY"
-                        : engineeringOnly
-                          ? "ENGINEERING_CONTRACTS"
-                          : "FULL",
+  test_suite: documentInvalidationOnly
+    ? "DOCUMENT_INVALIDATION"
+    : productOnly
+      ? "PRODUCT_CONSISTENCY"
+      : mixedNativeOnly
+        ? "MIXED_NATIVE_METADATA"
+        : validationOnly
+          ? "VALIDATION_CONVERGENCE"
+          : correctionOnly
+            ? "RECEIVED_OUTPUT_CORRECTION"
+            : apiOnly
+              ? "API_FALLBACK"
+              : documentsOnly
+                ? "NATIVE_DOCUMENTS"
+                : issuesOnly
+                  ? "RETROSPECTIVE_ISSUES"
+                  : contractOnly
+                    ? "OUTPUT_CONTRACT"
+                    : recoveryOnly
+                      ? "OUTPUT_RECOVERY"
+                      : outputsOnly
+                        ? "SNAPSHOT_OUTPUTS"
+                        : zipOnly
+                          ? "ZIP_SAFETY"
+                          : engineeringOnly
+                            ? "ENGINEERING_CONTRACTS"
+                            : "FULL",
+  native_document_invalidation_evidence: documentInvalidationEvidence,
   native_product_consistency_evidence: productEvidence,
   native_product_boundaries: productBoundaries,
   native_mixed_metadata_evidence: mixedNativeEvidence,
@@ -1107,7 +1143,11 @@ const immutablePath = path.join(
   path.basename(runRoot) + ".json",
 );
 const output =
-  immutableOnly || validationOnly || mixedNativeOnly || productOnly
+  immutableOnly ||
+  validationOnly ||
+  mixedNativeOnly ||
+  productOnly ||
+  documentInvalidationOnly
     ? immutablePath
     : path.join(
         root,
