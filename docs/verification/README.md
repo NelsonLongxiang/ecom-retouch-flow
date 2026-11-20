@@ -1,6 +1,15 @@
 # 验证与复现
 
-## 验证面收敛候选（本轮，独立复核待完成）
+## 受管过程状态读取与诊断边界
+
+开发测试的启动/退出证据由现有[运行器](../../scripts/test.mjs)写入项目任务目录。接手状态优先调用[开发传输](../../scripts/lib/native-ygl.mjs)的 `inspectManagedProcess("tmp/<任务>/<process-dir>")`，只读取既有 launch/exit/stdio，不查询系统进程、不发信号、不启动PowerShell。
+
+- `CLOSED`只表示同一supervisor/child/start身份的退出回执已记录，exit0也不等测试PASS、所有后代退出或缓存隔离。当前PID是否仍属于原进程始终NOT_OBSERVED。
+- 缺目录/launch/exit是UNKNOWN，不能当正在运行/已经结束或自动重试依据；坏JSON、超大记录、错身份/时间、越界或link拒绝为INVALID。该读取器不提供同OS恶意写者/竞态攻击保证。
+- `captureNode`新增显式用途 `purpose: "os-diagnostic"`，当前一律DIAGNOSTIC_NOT_SUPPORTED，在建日志/启动子进程前拒绝；默认node调用不改环境。用途由可信调用方声明，不扫描/约束任意node-e内部child_process，不是安全沙箱。不要据此重新启用原PowerShell路径或换Shell试跑。
+- 这项原批补救不修复历史缓存、DSH启动环境、上游验证器清理或C1交付；H1–H4与整批HOLD分别保留。
+
+## PR21验证面收敛候选（历史原范围）
 
 依据[ADR-005](../ADR-005-validation-convergence.md)复用正式运行器、原生客户端与[项目纯数据包](../../verify/packs/retouch-validation/README.md)。目录链接入口的红测为exit0/空stdout，修后canonical/link均输出完整CLI JSON，import保持无执行；日志先写原件再有界解析，超大输出、错误JSON、空输出、timeout、非零和领域FAIL分别记录。新capture显式传不可变probe报告并在原生写入前预检；capture/probe新输出不覆盖旧固定索引，见对应SUPERSEDED导航。
 
