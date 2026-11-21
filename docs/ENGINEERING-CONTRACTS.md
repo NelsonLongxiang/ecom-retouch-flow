@@ -168,9 +168,9 @@ Issue #12 的 [快照输出编排](SNAPSHOT-OUTPUTS.md) 在suite export上增加
 - 外部已发unknown、received本地恢复、同键不重发：[native-api](../tests/native-api.test.ts) 与 [physical-reference](../tests/native-issues-physical-reference.test.ts)有fixture。已知历史PR20/PR15报告保留原范围，本轮未重跑API全场景，不凭测试名记本轮PASS。
 - 发布中失效与只补complete：native-outputs-contract/recovery已有after-seal/after-data/after-marker-check、模拟EIO/EXDEV等；marker存在≠原生当前完成。新#26未重跑该矩阵。
 - 导入历史授权隔离：received纠错与product-consistency隔离ZIP/clone有原报告；普通governance SNAPSHOT_TASK/外部rel遗留另列，不能借C0宣称所有项目可交换。
-- 发布恢复已有证据的确切时点：[outputs-recovery:37–42](../tests/native-outputs-recovery.test.ts#L37-L42)在调用suite-export-complete前抛出synthetic lost completion request，证明已发布组件之后、原生完成调用未执行时的恢复；不等同于DB已commit而客户端响应丢失。后者仍待明确故障注入，不能把两者合并记PASS。
+- 发布恢复已有证据的确切时点：[outputs-recovery:37–42](../tests/native-outputs-recovery.test.ts#L37-L42)在调用suite-export-complete前抛出synthetic lost completion request，证明已发布组件之后、原生完成调用未执行时的恢复；不等同于DB已commit而客户端响应丢失。新增C1测试在真实NativeClient.raw成功返回且只读确认原生收据已持久化后，由测试适配器丢弃结果并抛unknown；另有提交前unknown对照。重开同home后先查原key，再核同键恢复只有一个新版/收据和不变领域快照。该用例只覆盖客户端调用边界模拟，不是进程kill、socket断流或0.126清理失败；不能把两者合并记同一PASS。正式窄入口为 `node scripts/test.mjs --suite receipt-recovery --ygl-entry <已安装入口> --run-parent tmp/<任务>/runs --process-dir tmp/<任务>/check`，只执行该原生文档测试文件及运行器回归。
 - 钉住0.125的原生writes.runTx（安装版0.125:73–105，属于外部钉装依赖）亲读可见整回调SQLITE_BUSY重入（最多初次加4次），提交后事件best-effort发出；当前retouch在该事务回调内还执行verifyProductPixels等CAS读取/像素重建，不能称纯DB回调。已有只读、固定hash的重建不等于已发收费请求，但未来#297数据库-only callback合同须评审这类读取与重校验的位置/一致性；不本轮改架构或盲搬到事务外而制造TOCTOU。实际重入次数及无副作用仍NOT_RUN。
-- 真正待证：commit后响应丢失且原key可恢复的指定原生故障注入、0.126 cleanup/local_commit映射、回调忙锁重入次数、派生缓存丢失后的最小重建。先给具体可判红输入与实际合同，不一口气重复旧全量。原媒体CAS/业务原件不得当缓存删除。
+- C1客户端边界小片已新增实际原生提交后的结果丢弃及提交前unknown对照，开发窄套件16/16exit0；仅说明该测试适配器故障时点与原键恢复，非全C1或全量验收，独立复验另列。真正待证：进程崩溃/socket中断层面的commit后响应丢失、0.126 cleanup/local_commit映射、回调忙锁重入次数、派生缓存丢失后的最小重建。先给具体可判红输入与实际合同，不一口气重复旧全量。原媒体CAS/业务原件不得当缓存删除。
 - C2仍依赖上游#296/#297的已评审版本化schema/capabilities/可固定消费实现。当前retouch仍锁0.125；不改shared安装、不deep-import新SDK、不让插件持锁递归CLI。跨领域research/task运行未取得，NOT_RUN。
 
 ## #25 · 业务采用分层设计提案（未批准／未实现）
@@ -212,4 +212,4 @@ P1待裁推荐：撤销不复活旧决定，旧epoch可精确历史reject/revoke
 - 必需补例：业务role注入技术字段仍不技术接受；adopt→reject→revoke不复活；epoch变后历史撤销；同scope_id改描述/成员拒绝；子scope不汇总原批；坏决定链/导入历史/条件来源拒绝。
 - 不新增认证系统、范围推理器或第二ledger；独立方向审查不是属主P1裁定或实现验收。
 
-本节只记录契约盘点与候选设计；源码读口的字段注入是新设计必需反例，不声称当前不存在的business-adoption动作已造成生产接受绕过。正式规范中的现有accepted/交付合同不因提案改变。#25实现、#24 C1新增故障执行和C2迁移均未在此文档增量执行。C0完成的是当前范围盘点与引用，不代表C1所有故障已覆盖；C1各待证项仅列退出判据，不因本页入册自动启动执行。
+本节#25只记录契约盘点与候选设计，字段注入是新设计必需反例，不声称不存在的business-adoption动作已造成生产接受绕过。现有accepted/交付合同不因提案改变。PR28文档增量未执行C1；后续本分支仅增加上述客户端边界小片，#25实现和C2迁移仍NOT_IMPLEMENTED/NOT_RUN，其他C1故障项保持待证，不因本页入册自动启动。
