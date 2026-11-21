@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   captureNode,
@@ -22,6 +23,201 @@ const runtime = () => {
   );
   return process.env.RETOUCH_TEST_ROOT!;
 };
+
+test("project pack construction required-domain and NULL cases", async () => {
+  const packRoot = path.join(root, "verify/packs/retouch-validation");
+  const readJson = async (name: string) =>
+    JSON.parse(await fs.readFile(path.join(packRoot, name), "utf8"));
+  const material = await fs.readFile(
+    path.join(packRoot, "material.md"),
+    "utf8",
+  );
+  const candidates = await readJson("candidates.json");
+  const cases = await readJson("fixtures/cases.json");
+  const schema = await fs.readFile(
+    path.join(packRoot, "fixtures/schema.sql"),
+    "utf8",
+  );
+  const pack = await readJson("pack.json");
+  for (const item of pack.files) {
+    const target = path.resolve(packRoot, item.path);
+    assert.ok(target.startsWith(packRoot + path.sep));
+    assert.equal(await fs.realpath(target), target);
+    const bytes = await fs.readFile(target);
+    assert.equal(bytes.length, item.bytes);
+    assert.equal(hash(bytes), item.sha256);
+  }
+  assert.equal(candidates.length, 1);
+  const clause = material.split("\n")[2];
+  assert.equal(candidates[0].source_clause, clause);
+  assert.deepEqual(candidates[0].anchor, {
+    quote: clause,
+    locator: "material.md#line=3",
+  });
+  assert.deepEqual(candidates[0].checker, {
+    type: "sql",
+    predicate: {
+      from: "observations",
+      select: ["id", "verdict"],
+      scan: { col: "required", op: "=", value: 1 },
+      where: {
+        op: "or",
+        conditions: [
+          { col: "verdict", op: "is null" },
+          { col: "verdict", op: "!=", value: "PASS" },
+        ],
+      },
+    },
+    fail_when: "rows>0",
+  });
+  // This is an explicit SQL oracle for the exact AST above, not a second renderer/engine.
+  // It validates construction data only; upstream prepare/run/witnesses remain NOT_RUN.
+  // Node number bindings are REAL for an ANY column; bind known integer inputs
+  // as SQLite INTEGER explicitly. Never coerce strings, null or fractional values.
+  const bound = (row: any[]) => [
+    row[0],
+    typeof row[1] === "number" && Number.isSafeInteger(row[1])
+      ? BigInt(row[1])
+      : row[1],
+    row[2],
+  ];
+  for (const scenario of cases.observation_datasets) {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(schema);
+      const insert = db.prepare("INSERT INTO observations VALUES(?,?,?)");
+      for (const row of scenario.rows) insert.run(...bound(row));
+      const count = Number(
+        db
+          .prepare("SELECT COUNT(*) AS n FROM observations WHERE required=1")
+          .get()!.n,
+      );
+      const violations = db
+        .prepare(
+          "SELECT id,verdict FROM observations WHERE required=1 AND (verdict IS NULL OR verdict!='PASS') ORDER BY id",
+        )
+        .all();
+      const actual =
+        count === 0 ? "NEEDS-MATERIAL" : violations.length ? "FAIL" : "PASS";
+      assert.equal(actual, scenario.expected, scenario.name);
+      if (scenario.name === "required-null") assert.equal(violations.length, 1);
+      if (scenario.name === "mixed-null-fail-unknown")
+        assert.deepEqual(
+          violations.map((r) => r.id),
+          ["fail", "null", "unknown"],
+        );
+    } finally {
+      db.close();
+    }
+  }
+  for (const row of cases.invalid_rows) {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(schema);
+      assert.throws(
+        () =>
+          db
+            .prepare("INSERT INTO observations VALUES(?,?,?)")
+            .run(...bound(row)),
+        { code: "ERR_SQLITE_ERROR" },
+        String(row[0]),
+      );
+      assert.equal(
+        db.prepare("SELECT COUNT(*) AS n FROM observations").get()!.n,
+        0,
+      );
+    } finally {
+      db.close();
+    }
+  }
+  const coverage = await readJson("coverage.json");
+  assert.deepEqual(
+    coverage.clauses.map((c: any) => c.id),
+    ["S1", "S2", "S3"],
+  );
+  for (const consumer of coverage.clauses) {
+    const filename = path.resolve(
+      root,
+      consumer.file ?? consumer.construction_test,
+    );
+    assert.ok(filename.startsWith(path.join(root, "tests") + path.sep));
+    const body = await fs.readFile(filename, "utf8");
+    assert.ok(
+      body.includes(JSON.stringify(consumer.test_name)),
+      consumer.id + " maintained consumer missing",
+    );
+  }
+  assert.match(coverage.upstream_full_material_coverage, /^NOT_READY/);
+  const review = await readJson("reviews.json");
+  const pinned = Object.fromEntries(
+    await Promise.all(
+      [
+        "material.md",
+        "candidates.json",
+        "fixtures/schema.sql",
+        "coverage.json",
+        "fixtures/cases.json",
+      ].map(async (name) => [
+        name,
+        hash(await fs.readFile(path.join(packRoot, name))),
+      ]),
+    ),
+  );
+  function validateReview(value: any) {
+    assert.equal(value.schema, "retouch.validation-construction-review/v1");
+    assert.equal(value.status, "INDEPENDENT_CONSTRUCTION_REVIEWED");
+    assert.equal(typeof value.reviewer, "string");
+    assert.ok(value.reviewer.trim());
+    assert.equal(typeof value.task, "string");
+    assert.ok(value.task.trim());
+    assert.equal(value.scope, "S1_SCHEMA_BOUND_STATIC_CONSTRUCTION_ONLY");
+    assert.deepEqual(value.inputs, pinned);
+    assert.ok(Array.isArray(value.reviews));
+    assert.equal(value.reviews.length, 1);
+    assert.equal(value.reviews[0].source_clause, clause);
+    const findings = value.reviews[0].findings;
+    assert.ok(Array.isArray(findings));
+    assert.equal(findings.length, 3);
+    assert.deepEqual(findings.map((f: any) => f.question).sort(), [
+      "decidable",
+      "faithful",
+      "not-vacuous",
+    ]);
+    for (const finding of findings) {
+      assert.equal(finding.verdict, "ok");
+      assert.equal(typeof finding.reason, "string");
+      assert.ok(finding.reason.trim());
+    }
+    assert.equal(value.engine_prepare, "NOT_RUN");
+    assert.equal(value.engine_P3_P4, "NOT_RUN");
+  }
+  validateReview(review);
+  for (const mutate of [
+    (r: any) => {
+      r.status = "PENDING_ACTUAL_INDEPENDENT_REVIEW";
+      r.reviews = [];
+    },
+    (r: any) => {
+      r.reviews[0].findings.pop();
+    },
+    (r: any) => {
+      r.reviews[0].findings[0].verdict = "reject";
+    },
+    (r: any) => {
+      r.reviewer = "";
+    },
+    (r: any) => {
+      r.inputs["coverage.json"] = "stale";
+    },
+    (r: any) => {
+      r.engine_P3_P4 = "PASS";
+    },
+  ]) {
+    const altered = structuredClone(review);
+    mutate(altered);
+    assert.throws(() => validateReview(altered));
+  }
+});
 
 test(
   "validation transport preserves full byte logs independently of JSON parsing and rejects domain failures",

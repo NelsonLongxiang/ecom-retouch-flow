@@ -1,5 +1,5 @@
 {
-  "schema": "retouch.validation-cases/v1",
+  "schema": "retouch.validation-cases/v1.1",
   "positive": {
     "id": "positive",
     "required": true,
@@ -21,5 +21,62 @@
     "observation": "synthetic view insufficient to decide",
     "expected": "UNKNOWN"
   },
-  "business_verdict": "NOT_READ_OR_MODIFIED; original bottom-panel FAIL stays business-side"
+  "business_verdict": "NOT_READ_OR_MODIFIED; original bottom-panel FAIL stays business-side",
+  "observation_datasets": [
+    {
+      "name": "positive-with-optional-null",
+      "rows": [
+        ["required-good", 1, "PASS"],
+        ["optional", 0, null]
+      ],
+      "expected": "PASS"
+    },
+    {
+      "name": "required-fail",
+      "rows": [["required-bad", 1, "FAIL"]],
+      "expected": "FAIL"
+    },
+    {
+      "name": "required-unknown",
+      "rows": [["unknown", 1, "UNKNOWN"]],
+      "expected": "FAIL"
+    },
+    {
+      "name": "required-null",
+      "rows": [["missing", 1, null]],
+      "expected": "FAIL"
+    },
+    {
+      "name": "mixed-null-fail-unknown",
+      "rows": [
+        ["null", 1, null],
+        ["fail", 1, "FAIL"],
+        ["unknown", 1, "UNKNOWN"],
+        ["good", 1, "PASS"],
+        ["optional", 0, null]
+      ],
+      "expected": "FAIL"
+    },
+    {
+      "name": "empty",
+      "rows": [],
+      "expected": "NEEDS-MATERIAL"
+    },
+    {
+      "name": "all-optional",
+      "rows": [
+        ["optional", 0, null],
+        ["optional2", 0, "PASS"]
+      ],
+      "expected": "NEEDS-MATERIAL"
+    }
+  ],
+  "invalid_rows": [
+    ["null-required", null, "PASS"],
+    ["bad-required", 2, "PASS"],
+    ["text-required", "1", "PASS"],
+    ["real-required", 0.5, "PASS"],
+    ["bad-verdict", 1, "maybe"],
+    ["", 1, "PASS"]
+  ]
 }

@@ -1,14 +1,44 @@
 {
-  "schema": "retouch.validation-construction-notes/v1",
-  "status": "AUTHOR_ONLY_NOT_BLIND_REVIEW",
-  "findings": [
+  "schema": "retouch.validation-construction-review/v1",
+  "status": "INDEPENDENT_CONSTRUCTION_REVIEWED",
+  "reviewer": "dsh/cacabc64",
+  "task": "direct-a7fa6047",
+  "full_original_reply": "direct-79704e61",
+  "scope": "S1_SCHEMA_BOUND_STATIC_CONSTRUCTION_ONLY",
+  "inputs": {
+    "material.md": "2ed8c166cff0c43715a4f73fb20715d39538fbd2f57c6838d444f2c846f10eca",
+    "candidates.json": "9ec9a0c7022bceddabd3c6a5d197949968ec34d3d658d8e4a6ff3255ce90c10e",
+    "fixtures/schema.sql": "6d10b9f55f4ca4c819a85dcd28695b04a162495c286e9e9ee345aa2d69ffbcfd",
+    "coverage.json": "0e35a584bc98c5f356e0faba588518ea667203cb8bac6e08288946eb6bbc73ea",
+    "fixtures/cases.json": "7ffe26bab636f287e9c588dbb1a050c2536a5f949026a77939868a599a7ae148"
+  },
+  "reviews": [
     {
-      "clause": "S1 每份给定观察必须有明确的必检结果；required项不是PASS时不得接受或交付。",
-      "faithful": "exact material quote",
-      "decidable": "closed predicate over given observations",
-      "not_vacuous": "missing observations are not accepted by the native test fixture"
+      "source_clause": "S1 当前必检观察数据集的required必须为整数0或1且非NULL；空表或无required=1时不具备验收条件（NEEDS-MATERIAL）；required=1的verdict为NULL或不为PASS时阻断通过。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "指定schema的STRICT、ANY NOT NULL、typeof整数及IN(0,1)约束承担required有效性；candidate以required=1限定扫描域，并用OR(is null,!=PASS)选择违规项，与S1一致。类型前提来自schema，不是单个SQL已证明任意外来数据合法。"
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "字段、合法值、扫描计数和违规查询均封闭可判。is null未带value；绑定只将原始safe integer转BigInt，不将NULL、字符串或小数正规化。测试先断言exact AST，再使用固定SQL oracle，不冒称上游renderer或engine已执行。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "scan限定required=1，空表或全optional的scope为0，按既有引擎合同应NEEDS-MATERIAL；必检NULL、FAIL、UNKNOWN进入违规集。7组数据及6种非法行含正反断言，不是无条件PASS。本席仅静态核查，未实跑。"
+        }
+      ]
     }
   ],
-  "native_prepare": "NOT_RUN_UPSTREAM_TEMP_CLEANUP_CONFLICT",
-  "independent_review": "required on exact final commit SHA"
+  "engine_prepare": "NOT_RUN",
+  "engine_P3_P4": "NOT_RUN",
+  "upstream_full_coverage": "NOT_READY_S2_S3_DIFFERENT_CONSUMERS",
+  "limitations": [
+    "Static input review only, schema prerequisite mandatory; not full-material freeze or native acceptance",
+    "Final execution/test revisions require their own exact-input validation; original review does not inherit new runtime evidence"
+  ]
 }
