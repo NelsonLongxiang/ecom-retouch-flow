@@ -99,6 +99,8 @@ async function snapshotFixture() {
       "verify/packs/retouch-validation/candidates.json",
       "verify/packs/retouch-validation/reviews.json",
       "verify/packs/retouch-validation/fixtures/cases.json",
+      "verify/packs/retouch-validation/fixtures/schema.sql",
+      "verify/packs/retouch-validation/coverage.json",
       "verify/packs/retouch-validation/README.md",
     ].map((file) => [file, "fixture"] as [string, string]),
     ["docs/PHYSICAL-REFERENCE-WORKFLOW.md", "original method"],
@@ -553,6 +555,8 @@ runnerEvidenceCases.push({
     for (const file of [
       "scripts/lib/native-ygl.mjs",
       "verify/packs/retouch-validation/candidates.json",
+      "verify/packs/retouch-validation/fixtures/schema.sql",
+      "verify/packs/retouch-validation/coverage.json",
     ]) {
       const fixture = await snapshotFixture(),
         before = await fixture.read();

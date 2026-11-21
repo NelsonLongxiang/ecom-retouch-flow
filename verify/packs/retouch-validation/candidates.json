@@ -1,25 +1,26 @@
 [
   {
-    "source_clause": "S1 每份给定观察必须有明确的必检结果；required项不是PASS时不得接受或交付。",
+    "source_clause": "S1 当前必检观察数据集的required必须为整数0或1且非NULL；空表或无required=1时不具备验收条件（NEEDS-MATERIAL）；required=1的verdict为NULL或不为PASS时阻断通过。",
     "anchor": {
-      "quote": "S1 每份给定观察必须有明确的必检结果；required项不是PASS时不得接受或交付。",
-      "locator": "material.md#S1"
+      "quote": "S1 当前必检观察数据集的required必须为整数0或1且非NULL；空表或无required=1时不具备验收条件（NEEDS-MATERIAL）；required=1的verdict为NULL或不为PASS时阻断通过。",
+      "locator": "material.md#line=3"
     },
     "checker": {
       "type": "sql",
       "predicate": {
         "from": "observations",
-        "select": [
-          "id",
-          "verdict"
-        ],
+        "select": ["id", "verdict"],
+        "scan": {
+          "col": "required",
+          "op": "=",
+          "value": 1
+        },
         "where": {
-          "op": "and",
+          "op": "or",
           "conditions": [
             {
-              "col": "required",
-              "op": "=",
-              "value": 1
+              "col": "verdict",
+              "op": "is null"
             },
             {
               "col": "verdict",

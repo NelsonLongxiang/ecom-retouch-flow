@@ -1,7 +1,7 @@
 {
   "schema": "retouch.validation-project-pack/v1",
   "name": "@ecom-retouch-flow/ygl-v-retouch-validation",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": {
     "name": "ygl-trees",
     "version": "0.125.0",
@@ -12,26 +12,36 @@
   "files": [
     {
       "path": "material.md",
-      "bytes": 439,
-      "sha256": "91277f32f1f9f05e007e5e4df250a8e7ad1daf3f8c0633a1c44740fb83afc2cc"
+      "bytes": 656,
+      "sha256": "2ed8c166cff0c43715a4f73fb20715d39538fbd2f57c6838d444f2c846f10eca"
     },
     {
       "path": "candidates.json",
-      "bytes": 836,
-      "sha256": "b73d57c7a16e85f237ba9b7223c0e987da8f4bcd3e3307af443be5972f2120d2"
+      "bytes": 1086,
+      "sha256": "9ec9a0c7022bceddabd3c6a5d197949968ec34d3d658d8e4a6ff3255ce90c10e"
     },
     {
       "path": "reviews.json",
-      "bytes": 575,
-      "sha256": "bc628b8cb367c752bcfeff8b5855f9d99ff2518b98593eb99dce75696ff67d7d"
+      "bytes": 2526,
+      "sha256": "9a84e640bd735d9dc6dfe0aa41e5e354bd29fe9ca26793b71b3663407f8231c3"
     },
     {
       "path": "fixtures/cases.json",
-      "bytes": 664,
-      "sha256": "1c6b524aa2514d11471f0e3947f816f345abcfe617c2c6d49f4c57404fbbe839"
+      "bytes": 1940,
+      "sha256": "7ffe26bab636f287e9c588dbb1a050c2536a5f949026a77939868a599a7ae148"
+    },
+    {
+      "path": "fixtures/schema.sql",
+      "bytes": 256,
+      "sha256": "6d10b9f55f4ca4c819a85dcd28695b04a162495c286e9e9ee345aa2d69ffbcfd"
+    },
+    {
+      "path": "coverage.json",
+      "bytes": 1274,
+      "sha256": "0e35a584bc98c5f356e0faba588518ea667203cb8bac6e08288946eb6bbc73ea"
     }
   ],
-  "upstream_freeze_and_run": "NOT_RUN_NO_DELETE_CONSTRAINT; manifest is project-local, not a falsely frozen ygl-verifier-pack",
+  "upstream_freeze_and_run": "NOT_RUN_NOT_ADMITTED; schema/independent review and full-clause coverage gates separate from run/corpus preservation conflict",
   "scope": [
     "linked CLI entry/import behavior",
     "complete process logs and fail-closed receipt interpretation",
@@ -43,5 +53,14 @@
     "real image visual judgment",
     "business DB/CAS mutation",
     "model/network calls"
-  ]
+  ],
+  "construction_contract": {
+    "required": "INTEGER0or1_NOT_NULL_NO_COERCION",
+    "verdict": "NULLorPASS_FAIL_UNKNOWN",
+    "no_required": "NEEDS-MATERIAL",
+    "required_null_verdict": "FAIL",
+    "schema": "fixtures/schema.sql",
+    "responsibilities": "coverage.json",
+    "not_a_full_upstream_spec": true
+  }
 }

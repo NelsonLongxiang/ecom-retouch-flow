@@ -1,0 +1,29 @@
+{
+  "schema": "retouch.validation-responsibilities/v1",
+  "clauses": [
+    {
+      "id": "S1",
+      "mode": "sql-construction-slice",
+      "candidate_index": 0,
+      "schema": "fixtures/schema.sql",
+      "construction_test": "tests/native-validation.test.ts",
+      "test_name": "project pack construction required-domain and NULL cases",
+      "limits": "given row validity only; not real acceptance or delivery proof"
+    },
+    {
+      "id": "S2",
+      "mode": "maintained-native-consumer",
+      "file": "tests/native-validation.test.ts",
+      "test_name": "project validation positive PASS and intended required-item FAIL remain separate, retained and self-checked",
+      "limits": "synthetic native observation/source preservation, not real business image verdict; NOT_RUN_THIS_REVISION"
+    },
+    {
+      "id": "S3",
+      "mode": "maintained-cli-consumer",
+      "file": "tests/native-validation.test.ts",
+      "test_name": "CLI canonical and real directory-link entries emit the same JSON; importing remains inert",
+      "limits": "existing behavior consumer; NOT_RUN_THIS_REVISION"
+    }
+  ],
+  "upstream_full_material_coverage": "NOT_READY; S2/S3 are not silently exempted or claimed covered by SQL S1. Separate verified execution evidence required."
+}
