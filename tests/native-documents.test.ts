@@ -103,6 +103,11 @@ test(
     ).artifact;
     let view = await c.call("brief", { project: p });
     assert.equal(
+      view.tasks.find((t: any) => t.id === task.id).meta.retouch.design_id,
+      companion.id,
+      "second design registration selects the companion series before revision",
+    );
+    assert.equal(
       view.relations.some(
         (r: any) =>
           r.src_id === design.id &&
@@ -291,7 +296,7 @@ test(
     );
     assert.equal(
       view.tasks.find((t: any) => t.id === task.id).meta.retouch.design_id,
-      revised.id,
+      companion.id, // Revising another related series cannot replace the actual selected design.
     );
     assert.ok(
       view.relations.some(

@@ -41,10 +41,19 @@ export async function captureNode(
     cwd,
     logRoot,
     env = {},
+    purpose = "node",
     timeoutMs = 30000,
     maxJsonBytes = 8 * 1024 * 1024,
   } = {},
 ) {
+  // This is a declared-purpose gate, not inspection of arbitrary Node source or a sandbox.
+  if (purpose !== "node") {
+    const error = new Error(
+      "OS diagnostics are not supported by the Node transport",
+    );
+    error.code = "DIAGNOSTIC_NOT_SUPPORTED";
+    throw error;
+  }
   if (
     !cwd ||
     !logRoot ||
@@ -173,6 +182,164 @@ export async function captureNode(
     { flag: "wx" },
   );
   return result;
+}
+// Inspect only supervisor-owned files. No process lookup, signalling or liveness inference.
+export async function inspectManagedProcess(directory) {
+  const unknown = (reason) => ({
+    status: "UNKNOWN",
+    reason,
+    live_state: "NOT_OBSERVED",
+  });
+  const invalid = (reason) => ({
+    status: "INVALID",
+    reason,
+    live_state: "NOT_OBSERVED",
+  });
+  if (typeof directory !== "string" || !directory)
+    return invalid("DIRECTORY_REQUIRED");
+  const target = path.resolve(project, directory);
+  const relative = path.relative(path.join(project, "tmp"), target);
+  if (
+    !relative ||
+    relative.startsWith(".." + path.sep) ||
+    relative === ".." ||
+    path.isAbsolute(relative)
+  )
+    return invalid("OUTSIDE_TASK_TMP");
+  // Walk every component, including tmp: a final realpath alone misses in-root links.
+  let cursor = project;
+  try {
+    for (const part of path.relative(project, target).split(path.sep)) {
+      cursor = path.join(cursor, part);
+      const stat = await fs.lstat(cursor);
+      if (stat.isSymbolicLink() || !stat.isDirectory())
+        return invalid("LINK_OR_NON_DIRECTORY");
+    }
+    if ((await fs.realpath(target)) !== target) return invalid("PATH_IDENTITY");
+  } catch (error) {
+    return error.code === "ENOENT"
+      ? unknown("NO_MANAGED_DIRECTORY")
+      : invalid("DIRECTORY_UNREADABLE");
+  }
+  async function record(name) {
+    const filename = path.join(target, name);
+    const stat = await fs.lstat(filename);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 16384)
+      throw new Error("RECORD_SHAPE");
+    const handle = await fs.open(filename, "r");
+    let bytes;
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.size > 16384)
+        throw new Error("RECORD_SHAPE");
+      const buffer = Buffer.alloc(16385);
+      let length = 0;
+      while (length < buffer.length) {
+        const result = await handle.read(
+          buffer,
+          length,
+          buffer.length - length,
+          length,
+        );
+        if (!result.bytesRead) break;
+        length += result.bytesRead;
+      }
+      if (length > 16384) throw new Error("RECORD_SIZE");
+      bytes = buffer.subarray(0, length);
+    } finally {
+      await handle.close();
+    }
+    return { bytes, value: JSON.parse(bytes.toString("utf8")) };
+  }
+  const pid = (n) => Number.isSafeInteger(n) && n > 0;
+  const time = (s) =>
+    typeof s === "string" &&
+    Number.isFinite(Date.parse(s)) &&
+    new Date(s).toISOString() === s;
+  let launch, exit;
+  try {
+    launch = await record("launch.json");
+  } catch (error) {
+    return error.code === "ENOENT"
+      ? unknown("NO_LAUNCH_RECEIPT")
+      : invalid("LAUNCH_RECORD");
+  }
+  const l = launch.value;
+  if (
+    !l ||
+    typeof l !== "object" ||
+    !pid(l.supervisor_pid) ||
+    !pid(l.child_pid) ||
+    !time(l.started_at) ||
+    !Array.isArray(l.args) ||
+    l.args.some((v) => typeof v !== "string") ||
+    l.temp_root !== path.join(target, "temp") ||
+    l.global_environment_changed !== false
+  )
+    return invalid("LAUNCH_BINDING");
+  try {
+    exit = await record("exit.json");
+  } catch (error) {
+    return error.code === "ENOENT"
+      ? unknown("NO_EXIT_RECEIPT")
+      : invalid("EXIT_RECORD");
+  }
+  const e = exit.value;
+  if (
+    !e ||
+    typeof e !== "object" ||
+    e.supervisor_pid !== l.supervisor_pid ||
+    e.child_pid !== l.child_pid ||
+    e.started_at !== l.started_at ||
+    !time(e.finished_at) ||
+    Date.parse(e.finished_at) < Date.parse(l.started_at) ||
+    !(
+      e.exit_code === null ||
+      (Number.isSafeInteger(e.exit_code) &&
+        e.exit_code >= 0 &&
+        e.exit_code <= 0xffffffff)
+    ) ||
+    !(
+      e.signal === null ||
+      (typeof e.signal === "string" && /^SIG[A-Z0-9]+$/.test(e.signal))
+    ) ||
+    (e.exit_code === null && e.signal === null)
+  )
+    return invalid("EXIT_BINDING");
+  try {
+    const streams = {};
+    for (const name of ["stdout.log", "stderr.log"]) {
+      const stat = await fs.lstat(path.join(target, name));
+      if (stat.isSymbolicLink() || !stat.isFile())
+        return invalid("STREAM_SHAPE");
+      streams[name] = stat.size;
+    }
+    if (
+      !(await record("launch.json")).bytes.equals(launch.bytes) ||
+      !(await record("exit.json")).bytes.equals(exit.bytes)
+    )
+      return unknown("RECEIPT_CHANGED");
+    return {
+      status: "CLOSED",
+      live_state: "NOT_OBSERVED",
+      directory: target,
+      supervisor_pid: l.supervisor_pid,
+      child_pid: l.child_pid,
+      started_at: l.started_at,
+      finished_at: e.finished_at,
+      exit_code: e.exit_code,
+      signal: e.signal,
+      stream_bytes: streams,
+      receipt_sha256: {
+        launch: digest(launch.bytes),
+        exit: digest(exit.bytes),
+      },
+      scope:
+        "Recorded child close only; not suite PASS, descendant exit, cache isolation or current PID ownership",
+    };
+  } catch {
+    return invalid("EVIDENCE_UNREADABLE");
+  }
 }
 export function nativeReceiptPassed(result, { doctor = false } = {}) {
   if (

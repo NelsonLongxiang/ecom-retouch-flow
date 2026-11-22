@@ -9,10 +9,19 @@ export function captureNode(
     cwd: string;
     logRoot: string;
     env?: Record<string, string>;
+    purpose?: "node" | "os-diagnostic";
     timeoutMs?: number;
     maxJsonBytes?: number;
   },
 ): Promise<any>;
+export function inspectManagedProcess(directory: string): Promise<{
+  status: "UNKNOWN" | "INVALID" | "CLOSED";
+  live_state: "NOT_OBSERVED";
+  reason?: string;
+  exit_code?: number | null;
+  signal?: string | null;
+  [key: string]: unknown;
+}>;
 export function nativeReceiptPassed(
   result: any,
   options?: { doctor?: boolean },

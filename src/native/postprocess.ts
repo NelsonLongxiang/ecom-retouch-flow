@@ -7,6 +7,11 @@ import { digest, assertNoCredentials } from "./plugin/commands.mjs";
 import { requireThat } from "../domain/model.ts";
 import { cropApproval } from "./plugin/output-profile.mjs";
 import { assertPostprocessOutput } from "./plugin/flow-contracts.mjs";
+import {
+  productComposite,
+  renderProductComposite,
+  verifyProductTransform,
+} from "./plugin/product-consistency.mjs";
 export const renderingFingerprint = () => ({
   schema: "retouch.renderer/v1",
   versions: { ...sharp.versions },
@@ -128,6 +133,18 @@ export async function transform(
     const view = await c.call("brief", { project });
     for (const op of approvedCrops) cropApproval(op, view.artifacts);
   }
+  const productOperations = input.operations.filter(
+    (op: any) => op.op === "product-composite",
+  );
+  let productArtifacts: any[] = [];
+  if (productOperations.length) {
+    requireThat(
+      input.operations.length === 1,
+      "PRODUCT_COMPOSITE",
+      "产品层合成及最终编码必须是唯一操作；后续改形须重新验证",
+    );
+    productArtifacts = (await c.call("brief", { project })).artifacts;
+  }
   const used = new Set([input.input_id]);
   for (const op of input.operations) {
     requireThat(
@@ -140,10 +157,30 @@ export async function transform(
         "resize",
         "extend",
         "encode",
+        "product-composite",
       ].includes(op.op),
       "TRANSFORM_OPERATION",
       "不支持的本地变换",
     );
+    if (op.op === "product-composite") {
+      const contract = productComposite(
+        op,
+        sources.get(input.input_id)!.a,
+        productArtifacts,
+      );
+      for (const a of [
+        contract.master,
+        contract.mask,
+        ...(contract.foreground ? [contract.foreground] : []),
+      ]) {
+        requireThat(
+          sources.has(a.id),
+          "PRODUCT_COMPOSITE",
+          "母版/蒙版/前景必须包含在精确输入清单中",
+        );
+        used.add(a.id);
+      }
+    }
     if (op.input_id) {
       requireThat(
         sources.get(op.input_id)?.a.kind === "media",
@@ -168,8 +205,11 @@ export async function transform(
   );
   const renderer = {
       ...renderingFingerprint(),
+      ...(productOperations.length
+        ? { product_layer: "deterministic-product-composite/v1" }
+        : {}),
       ...(input.operations.some((op: any) =>
-        ["extend", "encode"].includes(op.op),
+        ["extend", "encode", "product-composite"].includes(op.op),
       )
         ? { operations: "retouch-local/v2" }
         : {}),
@@ -236,6 +276,8 @@ export async function transform(
         [...sources.values()].map((s) => s.a),
       );
       await objectBytes(c.root, JSON.parse(image.meta));
+      if (productOperations.length)
+        await verifyProductTransform(c.root, productArtifacts, ex, image);
       return {
         execution: ex,
         artifact: image,
@@ -244,7 +286,7 @@ export async function transform(
       };
     }
   }
-  let bytes = await sharp(sources.get(input.input_id)!.bytes)
+  let bytes: Buffer = await sharp(sources.get(input.input_id)!.bytes)
     .toColourspace("srgb")
     .ensureAlpha()
     .png()
@@ -254,6 +296,15 @@ export async function transform(
     const before = await sharp(bytes).metadata(),
       w = before.width!,
       h = before.height!;
+    if (op.op === "product-composite") {
+      bytes = await renderProductComposite(
+        bytes,
+        op,
+        sources.get(input.input_id)!.a,
+        productArtifacts,
+        async (a: any) => sources.get(a.id)!.bytes,
+      );
+    }
     if (op.op === "extract") {
       region(op.region, w, h, op.coordinate_system);
       bytes = await sharp(bytes)

@@ -4,7 +4,7 @@
 
 ## 项目目录定义与治理
 
-**维护归属：EcomRetouchFlow 项目维护线，属主终裁。** ROOT 是按当前环境声明核实的项目根，不从 cwd 猜测，也不强制其他机器使用相同绝对路径。源码检出与业务工作区分开，运行时传明确参数。下面是本项目唯一目录职责地图；开发约束见 [AGENTS](AGENTS.md)，业务操作见 [SKILL](SKILL.md)，两者引用本节，不维护第二份地图。
+**维护归属：EcomRetouchFlow 项目维护线，属主终裁。** ROOT 是按当前环境声明核实的项目根，不从 cwd 猜测，也不强制其他机器使用相同绝对路径。源码检出与业务工作区分开，运行时传明确参数。下面是本项目唯一目录职责地图；未知顶层对象先按未声明对象处理，不能因系统工具生成、文件被忽略或技术测试通过而获得合法性。开发约束见 [AGENTS](AGENTS.md)，业务操作见 [SKILL](SKILL.md)，两者引用本节，不维护第二份地图。
 
 **零容忍准则：归属、位置、授权、保全、生命周期或消费者任一项未知/失败，就停止依赖它的写入；不隐藏问题、放宽判据或把文档修改当实际修复。** 不自动迁移、删除历史或替换技能链接。
 
@@ -20,7 +20,7 @@
 | [docs/demo/](docs/demo/) / [docs/issues/](docs/issues/) | 明确的演示样例、产品问题提报与开发沿革；[Issue索引](docs/issues/README.md)不代替业务任务和接受，原提报时态保留。 |
 | 本机早期研究／迁移记录（定位见下方清单） | 仅本地保全，不随公开仓库分发、不作运行依赖，不批量改历史路径/版本；公开边界见[归档说明](docs/ARCHIVE.md)。 |
 | [.agents/skills/ecom-retouch-flow/](.agents/skills/ecom-retouch-flow/) | 已核实为本项目普通目录；[发现入口](.agents/skills/ecom-retouch-flow/SKILL.md)只引导根业务技能，不能独立复制安装或长出第二份规则。 |
-| 可选 Atelier junction（本机定位见下方清单） | 指向共享 Agent Atelier，不是本项目可编辑副本；保留链接/目标，不随仓库分发，不改共享技能代替项目修订。 |
+| .agents/ / .dsh/ 发现容器与可选 Atelier junction | 两个容器只承载已核实的技能发现入口和可选链接，不是任意临时输出目录。链接定位见下方清单，共享Atelier目标不是本项目可编辑副本；保留链接/目标，不随仓库分发，不改共享技能代替项目修订。 |
 | 本机冻结插件归档（定位见下方清单） | 只读，不直接安装/构建/测试写入；恢复方法和公开范围见[归档说明](docs/ARCHIVE.md)。历史266项校验属于原迁移记录，不是本轮重验。 |
 | 本机任务临时区（定位见下方清单） | 新输出仅放 `ROOT/tmp/<任务标识>/`；开发和独立验收各用任务子目录，不覆盖他人现场。旧浏览器/被拒清理对象原位保全；不豁免根层散落，不作正式能力或唯一持久交付依赖。 |
 | node_modules/ / .git/ | 依赖生成物与版本元数据；不手工编辑。安装、共享状态、Git暂存/提交/分支按实际授权和协作门禁；不动他人暂存/在途，不用clone/worktree/stash绕冻结。 |
@@ -36,12 +36,14 @@ archive/browser-extension/1.5.0-20261114/
 .agents/skills/agent-atelier/
 .dsh/skills/agent-atelier/
 tmp/<任务标识>/
+%SystemDrive%/ProgramData/Microsoft/Windows/Caches/  # 异常根层对象H3，非合法例外
+docs/YGL-WRAPPER-METHODOLOGY.md  # 属主已批准纳入本项目的候选方法参考，原作者未证
 tmp/upstream-issues-20261115.zip   # 待核归位的历史对象，保持原位
 ```
 
 ### 写入前六项门禁
 
-本次直接文档编辑也适用；相同范围已核证据可复用，目标/平台/权限/并发变化时重查。每个PASS必须有实际依据，`.gitignore`、目录存在或rc0不能单独证明通过。
+本次直接文档编辑也适用；相同范围已核证据可复用，目标/平台/权限/并发变化时重查。每个PASS必须有实际依据，`.gitignore`、目录存在或rc0不能单独证明通过。只核本次受影响的入口、落点和消费者，不机械递归扫描历史。工具隐含输出不明时，停止该执行链及依赖其合规结论的交付；已授权且位置、保全及消费者已核清的独立治理文档可继续，不代表受阻链恢复。只读OS查询也可能产生cache，TMP/TEMP或cwd不是全链隔离证明。
 
 | 判据 | 当前动作须核对 | 不通过时 |
 | --- | --- | --- |
@@ -56,9 +58,11 @@ tmp/upstream-issues-20261115.zip   # 待核归位的历史对象，保持原位
 
 | 对象 / 证据 | 状态、影响与下一步 |
 | --- | --- |
-| H1 · 宿主日志落点／完整读取 | **宿主目录问题未修复。** 用户已另给本轮有限自动日志例外，项目编译/原生开发验证因此按真实记录执行并通过，不代表永久豁免或宿主合规。到期/额度用尽即停止例外；不改DSH/共享配置、不清历史、不换入口绕过。诊断和恢复条件仍见[现有交接](docs/SKILL-EVOLUTION.md#宿主输出阻塞的最小交接)。 |
+| H1 · 宿主日志落点／完整读取 | **宿主目录问题未修复。** 历史有限日志例外只适用于各自授权窗口，不可由本页“本轮”措辞、旧PASS或新技能修订推断当前仍有效；没有实际授权/执行链证据就不执行。到期/额度用尽即停止例外；不改DSH/共享配置、不清历史、不换入口绕过。诊断和恢复条件仍见[现有交接](docs/SKILL-EVOLUTION.md#宿主输出阻塞的最小交接)。 |
 | H2 · 根层历史 ZIP（本机定位见上方清单） | **D2/D5位置不符，D4活跃引用与处置授权未明。** 28,370字节、13条目与同名任务目录hash一致，不据此推定无人使用。迁移确认未取得，原位保全；不新建同类根层输出，不覆盖、移动或删除，不改历史回执。 |
-| 技能0.1.5与#16/#17方法候选 | 书籍摆放、相对截面分项及[控制前检/三层对照](docs/PHYSICAL-REFERENCE-WORKFLOW.md#结构纠偏的控制前检与三层对照)已进入公共方法和短入口。原生接手/记录/编排已通过开发及独立软件复验；不证明模型服从、实际主动纠偏、毫米准确或收益，真实视觉/用户接受仍另验。见[技能演化](docs/SKILL-EVOLUTION.md)。 |
+| H3 · 工具隐含根层缓存 | **D2/D5失败、D6成因链未证；C1交付HOLD。** OS诊断期间出现3个未声明根层缓存，共987,712字节，时间与PowerShell查询吻合但完整成因UNKNOWN。已停该诊断路径；不删/移/忽略/暂存、不自动授保留例外。C1开发16/16不证明目录合规；只暂停依赖动作，父PR限定结论保留。机器身份沿现有任务记录保全。 |
+| H4 · 方法论候选维护归属已确认 | 属主已在本会话确认按建议将[高级封装方法论](docs/YGL-WRAPPER-METHODOLOGY.md)纳入EcomRetouchFlow维护，消费者为领域起步与使用方法参考；原20,436字节保留，作者身份仍未证。已逐节对照用户提供的v0.1正文，未发现实质差异，但无聊天字节副本，不称字节同一。候选不覆盖当前契约、不授业务/安装权限，不等于方法已跨实例验证；该项归属确认不解除H1–H3或整批HOLD。 |
+| 技能0.1.6治理候选／0.1.5方法历史 | 书籍摆放、相对截面分项及[控制前检/三层对照](docs/PHYSICAL-REFERENCE-WORKFLOW.md#结构纠偏的控制前检与三层对照)已进入公共方法和短入口。原生接手/记录/编排已通过开发及独立软件复验；不证明模型服从、实际主动纠偏、毫米准确或收益，真实视觉/用户接受仍另验。见[技能演化](docs/SKILL-EVOLUTION.md)。 |
 | 当前软件与历史报告 | 已交付eb55a962/PR15的80项结果保留原范围；受限received登记纠错候选完成最终类型、开发及独立全量86/86、定向13/13，83输入稳定、11域原件一致，独立结论PASS_SOFTWARE_SCOPE。#18另保全于未合并Draft PR19且独立INCOMPLETE，不包含在纠错验收中。见[验证说明](docs/verification/README.md)。 |
 
 本节核验只覆盖项目根一层、上述职责、直接相关链接和本轮文档；没有递归审计所有tmp/归档/依赖、所有运行占用或宿主缓存，**不声称全仓/全盘ALL_CLEAN**。问题消除必须有实际修复与复验证据；地图只说明归属，不是运行时沙箱或自动准入器。
@@ -92,7 +96,7 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 - 完整项目 ZIP 包含原生上下文、关系、回执、接手摘要和必要素材；预检后事务恢复，重复导入不回滚后续进度。
 - 项目标签、评分、结语与完结记录可更新。跨所有登记工作区检索、引用 design/spec，按不同项目数展示标签频率、二次分类、共现和评分视图；恢复副本去重，分歧明确报告。
 
-让 Agent 使用 [SKILL.md](SKILL.md)（本项目领域技能修订0.1.5候选；来源、分层验证与采用状态见[技能演化](docs/SKILL-EVOLUTION.md)，不等于CLI发版或全局安装）；参数及 JSON 示例见 [CLI](docs/CLI.md)，真实图像交接见 [宿主协议](docs/HOST-EXECUTOR.md)，架构边界见 [架构](docs/ARCHITECTURE.md)。[动态上下文规范](docs/DYNAMIC-CONTEXT.md) 区分已实现的检索分析与仍由宿主 Agent 完成的专业解释。
+让 Agent 使用 [SKILL.md](SKILL.md)（本项目领域技能修订0.1.6候选，目录异常未解决；来源、分层验证与采用状态见[技能演化](docs/SKILL-EVOLUTION.md)，不等于CLI发版或全局安装）；参数及 JSON 示例见 [CLI](docs/CLI.md)，真实图像交接见 [宿主协议](docs/HOST-EXECUTOR.md)，架构边界见 [架构](docs/ARCHITECTURE.md)。[动态上下文规范](docs/DYNAMIC-CONTEXT.md) 区分已实现的检索分析与仍由宿主 Agent 完成的专业解释。
 
 [物理参数到可视参考](docs/PHYSICAL-REFERENCE-WORKFLOW.md) 提供六层定义与七阶段链路，区分构型/测量状态、成像条件、非成品参考、控制值和实际观察；不承诺CAD精度或自动物理验收。
 
@@ -104,10 +108,10 @@ node scripts/test.mjs --ygl-entry <ygl/dist/bundle/bin.cjs>
 
 ## 验证与当前状态
 
-本轮[验证面收敛](docs/ADR-005-validation-convergence.md)复用本仓正式入口，不新建验证器仓：已修复目录链接启动CLI的exit0空JSON、统一开发原生传输的项目内完整日志，并引入[纯数据项目判据包](verify/packs/retouch-validation/README.md)。开发验证专项16/16、正例PASS／预定规则FAIL／项目自检PASS已留证；同SHA独立复核尚待完成。上游验证器prepare/run/full-corpus与无删除约束冲突保持NOT_RUN，不能以本项目自检替代上游全绿或宣称ALL_CLEAN。原真实业务图像FAIL不改变，详见[验证说明](docs/verification/README.md)。
+历史阶段（2026-11-18，PR21提交 `5a93d652…`）：[验证面收敛](docs/ADR-005-validation-convergence.md)复用正式入口，开发专项16/16；当时正文写“独立待完成”。随后同SHA独立结论为声明源码范围PASS、整体PARTIAL，不回写原报告。该16项与后续C1开发16项是不同候选，不能混为同一验收。上游prepare/run/full-corpus的保全约束冲突仍NOT_RUN；项目自检不替代上游全绿。当前结果短导航见下。
 
 受限received输出登记纠错已完成**最终类型检查、开发及独立全量86/86、定向13/13 PASS**；21份native测试文件完整覆盖，83份受验输入与最终磁盘一致，11类领域原件吻合，独立结论PASS_SOFTWARE_SCOPE。入口为[受限登记纠错](docs/CLI.md#已received外部输出的受限登记纠错)，只审计更正reference→candidate并保留received、实际hash、旧FAIL/UNKNOWN及独立上下文／接受门禁；不自动改真实业务记录或调用图像服务。项目运行器实测项目内日志与子进程临时目录，不修改全局TEMP或DSH。既有80项与发布marker限制、原失败及unknown现场保留原范围，详见[验证说明](docs/verification/README.md)。PR交付不等于合并、发版或部署，软件PASS也不等于商品视觉／用户接受。
 
-技能0.1.5仍不等于业务行为、泛化或收益已验证。[P1 #18商品一致性与受保护产品层](https://github.com/NelsonLongxiang/ecom-retouch-flow/issues/18)的在途实现已按属主隔离裁定保全为[Draft PR19](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/19)，独立验收仍INCOMPLETE，未合并、不在本纠错分支。登记纠错按已交付eb55a962独立开发，原失败不改写；真实视觉、隐藏几何、毫米精度、模型服从和成本收益另验，不自动关闭issue或发布。
+当前限定结果导航：[#18／PR23](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/23)提交 `ed46eb3a…` 已获开发和同SHA独立24/24软件范围PASS；[#26／PR27](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/27)提交 `6e535978…` 为25/25软件范围PASS；[PR28](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/28)提交 `9f69321e…` 仅契约矩阵/未批准采用设计的文档评审PASS。确切身份与限制见[工程契约](docs/ENGINEERING-CONTRACTS.md#24--六动作恢复契约现状矩阵c0)。旧[PR19](https://github.com/NelsonLongxiang/ecom-retouch-flow/pull/19)及独立INCOMPLETE保留，不追认；当前C1三路径另有开发16/16，因H3提交与独立复验仍HOLD，尚未形成新PR。技能0.1.6仍candidate，结构/显式加载不等业务行为、泛化或收益。真实视觉/隐藏几何/毫米精度/用户接受和成本收益另验，不自动合并或关单。
 
 MIT License。原浏览器插件冻结于本地 `archive/`，归档、业务运行状态、凭证与机器验证记录不参与 Git 跟踪。

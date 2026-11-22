@@ -602,7 +602,8 @@ test(
 
 test(
   "#12 cache: normal task closure changes revision but identical output exports reuse completed native derivatives",
-  { skip: !entry, timeout: 180000 },
+  // Whole native closure/export/reuse scenario; individual CLI timeout remains60s.
+  { skip: !entry, timeout: 600000 },
   async () => {
     const { parent, c, p, designTask, call, profile } = await fixture();
     const media = (

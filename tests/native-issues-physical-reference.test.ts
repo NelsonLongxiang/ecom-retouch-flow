@@ -18,6 +18,7 @@ import {
 } from "../src/native/exchange.ts";
 import { digest } from "../src/native/plugin/commands.mjs";
 import { physicalFactsFixture } from "./helpers/physical-reference-cases.ts";
+import { registerProductConsistency } from "./helpers/product-consistency-fixture.ts";
 
 const entry = process.env.RETOUCH_TEST_YGL_ENTRY;
 
@@ -221,6 +222,14 @@ test(
     const nextRevision = async () =>
       (await c.call("task-view", { project: p, id: task.id })).task.meta.retouch
         .revision;
+    await registerProductConsistency(
+      c,
+      p,
+      task.id,
+      original,
+      "reference",
+      "physical16",
+    );
     const oldPrompt =
       "OLD FROZEN RULES: follow the reference purpose; no support/contact rule was added to this request yet.";
     const planned = await call("plan", {
@@ -232,6 +241,7 @@ test(
       steps: [
         {
           id: "blend",
+          input_role: "product-structure",
           prompt: oldPrompt,
           needs: [],
           fact_keys: fixture.keys,
