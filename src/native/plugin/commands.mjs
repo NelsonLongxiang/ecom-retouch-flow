@@ -374,28 +374,66 @@ function goalContent(b) {
     source: text(b.source, "来源"),
   };
 }
-async function invalidateDocumentTasks(mgr, p, ids, design) {
+async function invalidateDocumentTasks(mgr, p, ids, design, designSeries = []) {
   const tasks = await mgr.query(
     "SELECT * FROM artifacts WHERE project_id=? AND kind='task'",
     [p.id],
   );
+  const typed = tasks.map((a) => {
+    const meta = metadata(a); // Malformed nonempty JSON is never treated as a native task.
+    if (meta.retouch === undefined) return { a, meta, retouch: false };
+    const r = meta.retouch;
+    try {
+      taskBinding(a, digest);
+    } catch (error) {
+      if (error.code !== "TASK_PROFILE") throw error;
+      check(
+        false,
+        "DOCUMENT_TASK_PROFILE",
+        "文档失效传播阶段：修图任务profile无效，不能按普通原生任务跳过",
+        1,
+      );
+    }
+    check(
+      Number.isSafeInteger(r.revision) &&
+        r.revision >= 0 &&
+        Array.isArray(r.dependencies ?? []) &&
+        (r.dependencies ?? []).every(
+          (id) => typeof id === "string" && id.trim(),
+        ),
+      "DOCUMENT_TASK_PROFILE",
+      "文档失效传播阶段：修图任务revision或依赖列表无效",
+      1,
+    );
+    return { a, meta, retouch: true };
+  });
   const affected = new Set(ids);
   let changed;
   do {
     changed = false;
-    for (const t of tasks) {
+    for (const { a, meta, retouch } of typed) {
       if (
-        !affected.has(t.id) &&
-        (metadata(t).retouch?.dependencies ?? []).some((id) => affected.has(id))
+        retouch &&
+        !affected.has(a.id) &&
+        (meta.retouch.dependencies ?? []).some((id) => affected.has(id))
       ) {
-        affected.add(t.id);
+        affected.add(a.id);
         changed = true;
       }
     }
   } while (changed);
-  for (const t of tasks.filter((x) => affected.has(x.id))) {
-    const meta = metadata(t);
-    if (design && ids.includes(t.id)) meta.retouch.design_id = design.id;
+  for (const { a: t, meta, retouch } of typed.filter((x) =>
+    affected.has(x.a.id),
+  )) {
+    // Governance tasks retain their native status and metadata. Their existing
+    // IDs still seed real retouch dependency consumers without adopting a profile.
+    if (!retouch) continue;
+    if (
+      design &&
+      ids.includes(t.id) &&
+      designSeries.includes(meta.retouch.design_id)
+    )
+      meta.retouch.design_id = design.id;
     meta.retouch.context_status = "needs_review";
     if (meta.status === "done") {
       meta.status = "doing";
@@ -1900,6 +1938,8 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       .filter(
         (t) =>
           t.id === meta.task_id ||
+          (old.kind === "design" &&
+            seriesIds.has(metadata(t).retouch?.design_id)) ||
           (meta.role === "product-facts" &&
             (metadata(t).retouch?.fact_keys ?? []).some((k) =>
               changedKeys.has(k),
@@ -1919,6 +1959,7 @@ async function workflow({ mgr, api, p, node, b, action, workspaceRoot }) {
       p,
       affected,
       old.kind === "design" ? a : null,
+      [...seriesIds],
     );
     return {
       artifact: a,
