@@ -1020,6 +1020,8 @@ async function collectSnapshots() {
     "verify/packs/retouch-validation/candidates.json",
     "verify/packs/retouch-validation/reviews.json",
     "verify/packs/retouch-validation/fixtures/cases.json",
+    "verify/packs/retouch-validation/fixtures/schema.sql",
+    "verify/packs/retouch-validation/coverage.json",
     "verify/packs/retouch-validation/README.md",
     // The native physical-reference regression reads this exact method body.
     "docs/PHYSICAL-REFERENCE-WORKFLOW.md",
