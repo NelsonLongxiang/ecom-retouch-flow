@@ -5,6 +5,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { outputFixture } from "./helpers/output-fixture.ts";
 import { digest } from "../src/native/plugin/commands.mjs";
+import { NativeClient } from "../src/native/client.ts";
+import { RetouchError } from "../src/domain/model.ts";
 const options = { skip: !process.env.RETOUCH_TEST_YGL_ENTRY, timeout: 300000 };
 function state(root: string) {
   const db = new DatabaseSync(path.join(root, "ygl", "ygl-trees.db"), {
@@ -398,6 +400,190 @@ test(
         typed_profile_errors: 3,
         malformed_JSON_rejected: true,
         complete_domain_rollback: true,
+        real_business_access: 0,
+      }) + "\n",
+      { flag: "wx" },
+    );
+  },
+);
+
+test(
+  "#24 C1 native committed revision survives discarded client response and reconnects by original receipt",
+  options,
+  async () => {
+    const outcomes: any[] = [];
+    for (const phase of ["before-submit", "after-native-commit"]) {
+      const f = await outputFixture({ retainRequests: true }),
+        doc = f.design,
+        key = "C1-response-loss-" + phase;
+      const body = {
+        project: f.p,
+        id: doc.id,
+        expected_version: doc.version,
+        expected_hash: digest(doc.content),
+        content:
+          "Synthetic revision with client response intentionally discarded",
+        reason: "C1 bounded native receipt recovery",
+        source: "fixture",
+      };
+      const before = state(f.c.root),
+        raw = f.c.raw.bind(f.c);
+      let nativeSubmissions = 0;
+      f.c.raw = async (args: string[]) => {
+        if (args[0] !== "retouch-native" || args[1] !== "document-revise")
+          return raw(args);
+        if (phase === "after-native-commit") {
+          nativeSubmissions++;
+          const committed = await raw(args);
+          assert.equal(committed.ok, true);
+          assert.equal(committed.result.artifact.version, doc.version + 1);
+          const durable = state(f.c.root),
+            receipts = durable.events.filter(
+              (e: any) =>
+                e.kind === "retouch.command" &&
+                JSON.parse(e.payload).request_id === key,
+            );
+          assert.equal(
+            receipts.length,
+            1,
+            "prove native receipt durable before discarding client result",
+          );
+          await fs.writeFile(
+            path.join(
+              process.env.RETOUCH_TEST_ROOT!,
+              "C1-postcommit-durable-proof.json",
+            ),
+            JSON.stringify({
+              phase,
+              request_key: key,
+              receipt: receipts[0],
+              artifact: committed.result.artifact,
+              fault_boundary:
+                "NativeClient.raw caller boundary after successful actual native child result; not OS process kill or provider network loss",
+            }) + "\n",
+            { flag: "wx" },
+          );
+        }
+        throw new RetouchError(
+          "NATIVE_RESULT_UNKNOWN",
+          "Synthetic client response loss; query original key",
+          1,
+          { phase },
+          "unknown",
+        );
+      };
+      try {
+        await assert.rejects(f.c.call("document-revise", body, key), {
+          code: "NATIVE_RESULT_UNKNOWN",
+          effectStatus: "unknown",
+        });
+      } finally {
+        f.c.raw = raw;
+      }
+      assert.equal(nativeSubmissions, phase === "after-native-commit" ? 1 : 0);
+      const afterFault = state(f.c.root);
+      if (phase === "before-submit")
+        assert.deepEqual(
+          afterFault,
+          before,
+          "same unknown error does not prove commit or noncommit without readback",
+        );
+      else assert.notDeepEqual(afterFault, before);
+      const reopened = await NativeClient.open(f.c.root, {
+        retainRequests: true,
+      });
+      const receipt = await reopened.call("receipt", { request_id: key });
+      assert.deepEqual(
+        state(f.c.root),
+        afterFault,
+        "receipt lookup and reconnect do not write domain state",
+      );
+      if (phase === "after-native-commit") {
+        assert.equal(receipt.action, "document-revise");
+        assert.equal(
+          receipt.intent,
+          digest({ action: "document-revise", body }),
+        );
+        assert.equal(receipt.result.artifact.version, doc.version + 1);
+      } else assert.deepEqual(receipt, {});
+      const recovered = await reopened.call("document-revise", body, key);
+      assert.equal(recovered.artifact.version, doc.version + 1);
+      assert.equal(
+        recovered.replayed === true,
+        phase === "after-native-commit",
+      );
+      const stable = state(f.c.root);
+      if (phase === "after-native-commit")
+        assert.deepEqual(
+          stable,
+          afterFault,
+          "same-key recovery cannot append second version, relation, invalidation or receipt",
+        );
+      const versions = stable.artifacts.filter(
+        (a: any) =>
+          a.project_id === f.p && a.kind === doc.kind && a.title === doc.title,
+      );
+      assert.equal(versions.length, 2);
+      assert.equal(
+        versions.filter((a: any) => a.version === doc.version + 1).length,
+        1,
+      );
+      assert.equal(
+        stable.events.filter(
+          (e: any) =>
+            e.kind === "retouch.command" &&
+            JSON.parse(e.payload).request_id === key,
+        ).length,
+        1,
+      );
+      assert.equal(
+        (await reopened.call("show", { project: f.p, id: doc.id })).content,
+        doc.content,
+      );
+      assert.equal(
+        (await reopened.call("receipt", { request_id: key })).result.artifact
+          .id,
+        recovered.artifact.id,
+      );
+      await assert.rejects(
+        reopened.call(
+          "document-revise",
+          { ...body, content: "Different intent must not reuse original key" },
+          key,
+        ),
+        { code: "REQUEST_CONFLICT" },
+      );
+      await assert.rejects(
+        reopened.call("document-revise", body, key + "-new-key-old-version"),
+        { code: "DOCUMENT_STALE" },
+      );
+      assert.deepEqual(state(f.c.root), stable);
+      outcomes.push({
+        phase,
+        error_status: "unknown",
+        native_submissions_before_fault: nativeSubmissions,
+        receipt_found_before_retry: phase === "after-native-commit",
+        replayed: recovered.replayed === true,
+        versions: 2,
+        request_receipts: 1,
+        conflict_and_stale_rejected: true,
+        domain_replay_unchanged: true,
+      });
+    }
+    await fs.writeFile(
+      path.join(
+        process.env.RETOUCH_TEST_ROOT!,
+        "native-postcommit-recovery-evidence.json",
+      ),
+      JSON.stringify({
+        verdict: "PASS",
+        fault_boundary:
+          "test adapter discards actual successful NativeClient.raw result, not process/socket interruption",
+        cases: outcomes,
+        actual_native_commit_and_receipt_verified: true,
+        reconnect_original_key: true,
+        no_duplicate_domain_state: true,
+        provider_network_calls: 0,
         real_business_access: 0,
       }) + "\n",
       { flag: "wx" },
